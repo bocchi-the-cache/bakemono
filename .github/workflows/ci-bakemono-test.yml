@@ -1,4 +1,4 @@
-name: hitori unit test ci
+name: bakemono unit test ci
 
 on: [push]
 
