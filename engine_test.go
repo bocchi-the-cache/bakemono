@@ -8,7 +8,12 @@ import (
 )
 
 func InitEngine(path string) (*Engine, error) {
-	engine := NewEngine(path)
+	cfg := &EngineConfig{
+		Path:        path,
+		SizeMb:      1024,
+		SliceSizeKb: 64,
+	}
+	engine := NewEngine(cfg)
 	err := engine.Init()
 	if err != nil {
 		return nil, err
@@ -49,8 +54,11 @@ func TestEngineInitWithNonExistFile(t *testing.T) {
 
 func TestEngineSet(t *testing.T) {
 	path := "/tmp/bakemono_test.cache"
-	engine := NewEngine(path)
-	err := engine.Init()
+	engine, err := InitEngine(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = engine.Init()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +71,11 @@ func TestEngineSet(t *testing.T) {
 
 func TestEngineGet(t *testing.T) {
 	path := "/tmp/bakemono_test.cache"
-	engine := NewEngine(path)
-	err := engine.Init()
+	engine, err := InitEngine(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = engine.Init()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +88,11 @@ func TestEngineGet(t *testing.T) {
 
 func TestEngineDelete(t *testing.T) {
 	path := "/tmp/bakemono_test.cache"
-	engine := NewEngine(path)
-	err := engine.Init()
+	engine, err := InitEngine(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = engine.Init()
 	if err != nil {
 		t.Fatal(err)
 	}

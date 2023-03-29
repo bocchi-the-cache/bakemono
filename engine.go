@@ -2,23 +2,47 @@ package bakemono
 
 import "os"
 
+const BlockSize = 1 << 12
+
 type Engine struct {
-	path string
-	fp   *os.File
+	path        string
+	SizeMb      uint32
+	SliceSizeKb uint32
+	fp          *os.File
+
+	Volume *Vol
 }
 
-func NewEngine(path string) *Engine {
+func NewEngine(cfg *EngineConfig) *Engine {
 	return &Engine{
-		path: path,
+		path:        cfg.Path,
+		SizeMb:      cfg.SizeMb,
+		SliceSizeKb: cfg.SliceSizeKb,
 	}
 }
 
 func (e *Engine) Init() error {
+	//var fileSize uint64
+	//fileSize = uint64(e.SizeMb) * 1024 * 1024
+	//blocks := fileSize / BlockSize
+	//fileUse := blocks * BlockSize
+
 	fp, err := os.OpenFile(e.path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
 	e.fp = fp
+
+	err = e.parseVol()
+
+	return nil
+}
+
+func (e *Engine) parseVol() error {
+	e.Volume = &Vol{
+		Path: e.path,
+		Fp:   e.fp,
+	}
 	return nil
 }
 

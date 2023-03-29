@@ -1,17 +1,5 @@
 package bakemono
 
-import "time"
-
-type offset uint64
-
-type VolHeaderFooter struct {
-	magic       uint32
-	createTime  time.Time
-	writePos    offset
-	syncSerial  uint64
-	writeSerial uint64
-}
-
 // Dir is index unit in cache vol. Inspired by Traffic Server.
 // use raw array to reduce memory allocation, especially for bare metal > 100TB.
 // raw data format
