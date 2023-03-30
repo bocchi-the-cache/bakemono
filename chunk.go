@@ -7,10 +7,11 @@ import (
 	"io"
 )
 
-const ChunkHeaderSizeFixed = 8 * 1 << 10 // 8KB
-const ChunkKeyMaxSize = 4 * 1 << 10      // 4KB
-
-var ChunkDataSize = 1 * 1 << 20 // 1MB
+const (
+	ChunkHeaderSizeFixed = 8 * 1 << 10 // 8KB
+	ChunkKeyMaxSize      = 4 * 1 << 10 // 4KB
+	ChunkDataSize        = 1 * 1 << 20 // 1MB
+)
 
 // Chunk is the unit of data storage.
 // Contains a header(meta) and data.
@@ -49,10 +50,7 @@ func (c *Chunk) WriteAt(w io.WriterAt, off int64) error {
 		return err
 	}
 	_, err = w.WriteAt(b, off)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 // Verify verifies the chunk. It returns nil if the chunk is valid.
@@ -62,18 +60,15 @@ func (c *Chunk) Verify() error {
 		return ErrChunkVerifyFailed
 	}
 	// checksum check data
-	crc := crc32.ChecksumIEEE(c.DataRaw)
-	if crc != c.Header.Checksum {
+	if crc := crc32.ChecksumIEEE(c.DataRaw); crc != c.Header.Checksum {
 		return ErrChunkVerifyFailed
 	}
 	return nil
 }
 
 // MarshalBinary returns the binary of the chunk.
-func (c *Chunk) MarshalBinary() (data []byte, err error) {
-	buf := &bytes.Buffer{}
-	buf.Grow(ChunkHeaderSizeFixed + len(c.DataRaw))
-
+func (c *Chunk) MarshalBinary() ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0, ChunkHeaderSizeFixed+len(c.DataRaw)))
 	b, err := c.Header.MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -89,16 +84,11 @@ func (c *Chunk) MarshalBinary() (data []byte, err error) {
 // Note: the data must be the whole chunk.
 func (c *Chunk) UnmarshalBinary(data []byte) error {
 	buf := bytes.NewBuffer(data)
-	err := c.Header.UnmarshalBinary(buf.Next(ChunkHeaderSizeFixed))
-	if err != nil {
+	if err := c.Header.UnmarshalBinary(buf.Next(ChunkHeaderSizeFixed)); err != nil {
 		return err
 	}
 	c.DataRaw = buf.Next(int(c.Header.DataLength))
-	err = c.Verify()
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.Verify()
 }
 
 // ChunkHeader is the meta of a chunk.
@@ -112,10 +102,9 @@ type ChunkHeader struct {
 
 // MarshalBinary returns the binary representation of the chunk header.
 // TODO: could use a buffer pool to avoid allocating a new buffer every time.
-func (c *ChunkHeader) MarshalBinary() (data []byte, err error) {
-	buf := &bytes.Buffer{}
-	err = binary.Write(buf, binary.BigEndian, *c)
-	if err != nil {
+func (c *ChunkHeader) MarshalBinary() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	if err := binary.Write(buf, binary.BigEndian, *c); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -123,10 +112,5 @@ func (c *ChunkHeader) MarshalBinary() (data []byte, err error) {
 
 // UnmarshalBinary unmarshal the binary representation of the chunk header.
 func (c *ChunkHeader) UnmarshalBinary(data []byte) error {
-	buf := bytes.NewBuffer(data)
-	err := binary.Read(buf, binary.BigEndian, c)
-	if err != nil {
-		return err
-	}
-	return nil
+	return binary.Read(bytes.NewBuffer(data), binary.BigEndian, c)
 }
