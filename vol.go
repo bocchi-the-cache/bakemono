@@ -29,7 +29,7 @@ const (
 // dirs are organized segment->bucket->dir logically.
 type Vol struct {
 	Path string
-	Fp   *os.File
+	Fp   OffsetReaderWriterCloser
 
 	Header *VolHeaderFooter
 	// map segment id to dirs
@@ -45,20 +45,43 @@ type Vol struct {
 	BucketsNumPerSegment offset
 
 	HeaderAOffset offset
-	HeaderBOffset offset
 	FooterAOffset offset
+	HeaderBOffset offset
 	FooterBOffset offset
 	DataOffset    offset
 }
 
-type VolConfig struct {
-	Path      string
+// VolOptions to init a Vol.
+// Note: do file open/truncate outside.
+type VolOptions struct {
+	Fp        OffsetReaderWriterCloser
 	FileSize  offset
 	ChunkSize offset
 }
 
-func (cfg *VolConfig) Check() error {
-	if cfg.Path == "" {
+// NewVolOptionsWithFileTruncate creates a VolOptions with a file path.
+// Note: It will create a file if not exists, and truncate it to the given size.
+func NewVolOptionsWithFileTruncate(path string, fileSize, chunkSize uint64) (*VolOptions, error) {
+	log.Printf("creating vol options with file truncate, path: %s, fileSize: %d, chunkSize: %d", path, fileSize, chunkSize)
+	fp, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("file opened, try to truncate to size: %d", fileSize)
+	err = fp.Truncate(int64(fileSize))
+	if err != nil {
+		return nil, err
+	}
+	return &VolOptions{
+		Fp:        fp,
+		FileSize:  offset(fileSize),
+		ChunkSize: offset(chunkSize),
+	}, nil
+}
+
+// Check checks if the VolOptions is valid.
+func (cfg *VolOptions) Check() error {
+	if cfg.Fp == nil {
 		return errors.New("invalid config: Fp is nil")
 	}
 	if cfg.FileSize == 0 {
@@ -70,12 +93,43 @@ func (cfg *VolConfig) Check() error {
 	return nil
 }
 
-func (v *Vol) Init(cfg *VolConfig) error {
+func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 	log.Printf("initing vol, config: %+v", cfg)
-	err := cfg.Check()
+	err = cfg.Check()
 	if err != nil {
-		return err
+		return false, err
 	}
+
+	// storage interface
+	v.Fp = cfg.Fp
+
+	// calculate vol offsets
+	v.prepareOffsets(cfg)
+
+	// validate disk file
+	err = v.validateFp()
+	if err != nil {
+		log.Printf("validate file failed, cache file may be corrupted or not initialized, err: %v", err)
+
+		v.initEmptyMeta()
+		corrupted = true
+
+		err = v.flushMetaToFp()
+		if err != nil {
+			log.Printf("init file failed, err: %v", err)
+			return corrupted, err
+		}
+	}
+
+	// rebuild from meta
+	err = v.buildMetaFromFp()
+
+	log.Printf("init vol done, corrupted: %v, err: %v", corrupted, err)
+	return corrupted, nil
+}
+
+// prepareOffsets calculates offsets and block numbers before initing a Vol.
+func (v *Vol) prepareOffsets(cfg *VolOptions) {
 	v.SectorSize = 512
 
 	// calculate size to allocate
@@ -95,37 +149,17 @@ func (v *Vol) Init(cfg *VolConfig) error {
 	v.FooterBOffset = v.HeaderBOffset + HeaderFooterSize + TotalChunks*DirSize
 	v.DataOffset = v.FooterBOffset + HeaderFooterSize
 
+	// calculate block number
 	v.Length = ActualFileSize
 	v.ChunksNum = TotalChunks
 	v.BucketsNum = TotalChunks / DirDepth
 	v.SegmentsNum = (v.BucketsNum + MaxSegmentSize - 1) / MaxSegmentSize
 	v.BucketsNumPerSegment = (v.BucketsNum + v.SegmentsNum - 1) / v.SegmentsNum
-
-	// open file
-	v.Fp, err = os.OpenFile(cfg.Path, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-
-	// validate disk file
-	err = v.validateFile()
-	if err != nil {
-		log.Printf("validate file failed, cache file may be corrupted or not initialized, err: %v", err)
-
-		v.initEmptyMeta()
-		err = v.initFile()
-		if err != nil {
-			log.Printf("init file failed, err: %v", err)
-			return err
-		}
-	}
-
-	// rebuild from meta
-	err = v.buildMetaFromFile()
-	return nil
+	log.Printf("initing vol: ActualLength: %d, ChunksNum: %d, BucketsNum: %d, SegmentsNum: %d, BucketsNumPerSegment: %d", v.Length, v.ChunksNum, v.BucketsNum, v.SegmentsNum, v.BucketsNumPerSegment)
 }
 
-func (v *Vol) validateFile() error {
+// validateFp validates the io with metadata.
+func (v *Vol) validateFp() error {
 	// read header
 	offsets := []offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
 	var headFooters []*VolHeaderFooter
@@ -153,18 +187,7 @@ func (v *Vol) validateFile() error {
 	return nil
 }
 
-func (v *Vol) initFile() error {
-	headerBinary, err := v.Header.MarshalBinary()
-	offsets := []offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
-	for _, off := range offsets {
-		_, err = v.Fp.WriteAt(headerBinary, int64(off))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
+// buildMetaFromFp builds new empty metadata.
 func (v *Vol) initEmptyMeta() {
 	v.Header = &VolHeaderFooter{
 		Magic:          MagicBocchi,
@@ -176,6 +199,7 @@ func (v *Vol) initEmptyMeta() {
 
 	// init dirs
 	v.Dirs = make(map[segId][]*Dir)
+	v.DirFreeStart = make(map[segId]uint16)
 
 	for seg := 0; seg < int(v.SegmentsNum); seg++ {
 		ChunkNumPerSegment := v.BucketsNumPerSegment * DirDepth
@@ -200,10 +224,13 @@ func (v *Vol) initEmptyMeta() {
 				dirs[offset].setNext(uint16(offset + 2))
 			}
 		}
+		v.Dirs[segId(seg)] = dirs
 	}
 
 }
-func (v *Vol) buildMetaFromFile() error {
+
+// buildMetaFromFp builds metadata from io.
+func (v *Vol) buildMetaFromFp() error {
 	h := &VolHeaderFooter{}
 	data := make([]byte, binary.Size(&VolHeaderFooter{}))
 	_, err := v.Fp.ReadAt(data, int64(v.HeaderAOffset))
@@ -218,7 +245,8 @@ func (v *Vol) buildMetaFromFile() error {
 	return nil
 }
 
-func (v *Vol) flushMetaToFile() error {
+// flushMetaToFp flushes metadata to io.
+func (v *Vol) flushMetaToFp() error {
 	data, err := v.Header.MarshalBinary()
 	if err != nil {
 		return err
