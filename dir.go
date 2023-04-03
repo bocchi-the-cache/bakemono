@@ -105,3 +105,7 @@ func (d *Dir) setToken(token bool) {
 func (d *Dir) next() uint16 {
 	return d.raw[3]
 }
+
+func (d *Dir) setNext(next uint16) {
+	d.raw[3] = next
+}
