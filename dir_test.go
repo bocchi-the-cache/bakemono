@@ -7,6 +7,64 @@ import (
 	"github.com/smartystreets/goconvey/convey"
 )
 
+func TestDir_MarshalUnmarshalBinary(t *testing.T) {
+	dir := Dir{}
+	r := rand.New(rand.NewSource(42))
+	expectedOffset := uint64(r.Uint32())
+	expectedBig := uint8(r.Intn(4))
+	expectedSize := uint8(r.Intn(64))
+	expectedTag := uint16(r.Intn(4096))
+	expectedPhase := r.Intn(2) == 1
+	expectedHead := r.Intn(2) == 1
+	expectedPinned := r.Intn(2) == 1
+	expectedNext := uint16(r.Uint32())
+	dir.setOffset(expectedOffset)
+	dir.setBig(expectedBig)
+	dir.setSize(expectedSize)
+	dir.setTag(expectedTag)
+	dir.setPhase(expectedPhase)
+	dir.setHead(expectedHead)
+	dir.setPinned(expectedPinned)
+	dir.setNext(expectedNext)
+
+	buf, err := dir.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir2 := Dir{}
+	err = dir2.UnmarshalBinary(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if dir2.offset() != expectedOffset {
+		t.Fatalf("expected offset %d, got %d", expectedOffset, dir2.offset())
+	}
+	if dir2.big() != expectedBig {
+		t.Fatalf("expected big %d, got %d", expectedBig, dir2.big())
+	}
+	if dir2.size() != expectedSize {
+		t.Fatalf("expected size %d, got %d", expectedSize, dir2.size())
+	}
+	if dir2.tag() != expectedTag {
+		t.Fatalf("expected tag %d, got %d", expectedTag, dir2.tag())
+	}
+	if dir2.phase() != expectedPhase {
+		t.Fatalf("expected phase %v, got %v", expectedPhase, dir2.phase())
+	}
+	if dir2.head() != expectedHead {
+		t.Fatalf("expected head %v, got %v", expectedHead, dir2.head())
+	}
+	if dir2.pinned() != expectedPinned {
+		t.Fatalf("expected pinned %v, got %v", expectedPinned, dir2.pinned())
+	}
+	if dir2.next() != expectedNext {
+		t.Fatalf("expected next %d, got %d", expectedNext, dir2.next())
+	}
+
+}
+
 func TestDirSetGet(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		testDirOnce(t)

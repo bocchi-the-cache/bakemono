@@ -1,5 +1,10 @@
 package bakemono
 
+import (
+	"bytes"
+	"encoding/binary"
+)
+
 // Dir is index unit in cache vol. Inspired by Traffic Server.
 // use raw array to reduce memory allocation, especially for bare metal > 100TB.
 // raw data format
@@ -18,6 +23,24 @@ type Dir struct {
 	   unsigned int offset_high : 16;
 	*/
 	raw [5]uint16
+}
+
+func (d *Dir) MarshalBinary() ([]byte, error) {
+	buf := &bytes.Buffer{}
+	err := binary.Write(buf, binary.BigEndian, d.raw)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (d *Dir) UnmarshalBinary(data []byte) error {
+	buf := bytes.NewBuffer(data)
+	err := binary.Read(buf, binary.BigEndian, &d.raw)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (d *Dir) offset() uint64 {

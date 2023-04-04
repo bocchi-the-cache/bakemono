@@ -24,6 +24,11 @@ const (
 	MaxSegmentSize = 1 << 16 / DirDepth
 )
 
+var (
+	HeaderSize = binary.Size(&VolHeaderFooter{})
+	DirSize    = binary.Size(&Dir{})
+)
+
 // Vol is a volume represents a file on disk.
 // structure: Meta_A(header, dirs, footer) + Meta_B(header, dirs, footer) + Data(Chunks)
 // dirs are organized segment->bucket->dir logically.
@@ -134,7 +139,7 @@ func (v *Vol) prepareOffsets(cfg *VolOptions) {
 
 	// calculate size to allocate
 	// Meta_A(header, dirs, footer) + Meta_B(header, dirs, footer) + Data(Chunks)
-	HeaderFooterSize := offset(binary.Size(&VolHeaderFooter{}))
+	HeaderFooterSize := offset(HeaderSize)
 	DirSize := offset(binary.Size(&Dir{}))
 	TotalChunks := (cfg.FileSize - 4*HeaderFooterSize) / (cfg.ChunkSize + 2*DirSize)
 	MetaSize := 2 * (HeaderFooterSize + TotalChunks*DirSize)
@@ -163,7 +168,7 @@ func (v *Vol) validateFp() error {
 	// read header
 	offsets := []offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
 	var headFooters []*VolHeaderFooter
-	size := binary.Size(&VolHeaderFooter{})
+	size := HeaderSize
 	for _, off := range offsets {
 		hf := &VolHeaderFooter{}
 		data := make([]byte, size)
@@ -229,10 +234,13 @@ func (v *Vol) initEmptyMeta() {
 
 }
 
+// TODO(meta): meta checksum, meta version
+// TODO(flush): flush to A/B alternately
+
 // buildMetaFromFp builds metadata from io.
 func (v *Vol) buildMetaFromFp() error {
 	h := &VolHeaderFooter{}
-	data := make([]byte, binary.Size(&VolHeaderFooter{}))
+	data := make([]byte, HeaderSize)
 	_, err := v.Fp.ReadAt(data, int64(v.HeaderAOffset))
 	if err != nil {
 		return err
@@ -242,11 +250,50 @@ func (v *Vol) buildMetaFromFp() error {
 		return err
 	}
 	v.Header = h
+
+	// read dirs
+	v.Dirs = make(map[segId][]*Dir)
+	v.DirFreeStart = make(map[segId]uint16)
+	for seg := 0; seg < int(v.SegmentsNum); seg++ {
+		dirs := make([]*Dir, v.BucketsNumPerSegment*DirDepth)
+		for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
+			for depth := 0; depth < DirDepth; depth++ {
+				dirIndex := bucket*DirDepth + depth
+				dirs[dirIndex] = &Dir{}
+				data := make([]byte, binary.Size(dirs[dirIndex]))
+
+				pos := v.HeaderAOffset + offset(HeaderSize) + offset(dirIndex*DirSize)
+				_, err := v.Fp.ReadAt(data, int64(pos))
+				if err != nil {
+					return err
+				}
+				err = dirs[dirIndex].UnmarshalBinary(data)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		v.Dirs[segId(seg)] = dirs
+		// TODO: dump free start
+		//v.DirFreeStart[segId(seg)] = uint16(seg)*uint16(v.BucketsNumPerSegment*DirDepth) + 1
+	}
 	return nil
 }
 
 // flushMetaToFp flushes metadata to io.
 func (v *Vol) flushMetaToFp() error {
+	err := v.flushHeaderFooterToFp()
+	if err != nil {
+		return err
+	}
+	err = v.flushDirsToFp()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *Vol) flushHeaderFooterToFp() error {
 	data, err := v.Header.MarshalBinary()
 	if err != nil {
 		return err
@@ -256,6 +303,24 @@ func (v *Vol) flushMetaToFp() error {
 		_, err = v.Fp.WriteAt(data, int64(off))
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (v *Vol) flushDirsToFp() error {
+	for seg := 0; seg < int(v.SegmentsNum); seg++ {
+		dirs := v.Dirs[segId(seg)]
+		for i := 0; i < len(dirs); i++ {
+			data, err := dirs[i].MarshalBinary()
+			if err != nil {
+				return err
+			}
+			off := v.HeaderAOffset + offset(HeaderSize) + offset(i*DirSize)
+			_, err = v.Fp.WriteAt(data, int64(off))
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
