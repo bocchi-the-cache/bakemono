@@ -44,6 +44,7 @@ type Vol struct {
 	SectorSize uint32
 
 	Length               offset
+	ChunkSize            offset
 	ChunksNum            offset
 	SegmentsNum          offset
 	BucketsNum           offset
@@ -107,6 +108,7 @@ func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 
 	// storage interface
 	v.Fp = cfg.Fp
+	v.ChunkSize = cfg.ChunkSize
 
 	// calculate vol offsets
 	v.prepareOffsets(cfg)
@@ -211,14 +213,14 @@ func (v *Vol) initEmptyMeta() {
 		dirs := make([]*Dir, ChunkNumPerSegment)
 
 		// first free chunk for conclusion
-		v.DirFreeStart[segId(seg)] = uint16(seg)*uint16(ChunkNumPerSegment) + 1
+		v.DirFreeStart[segId(seg)] = 1
 
 		// init all dirs as empty
 		for i := 0; i < len(dirs); i++ {
 			dirs[i] = &Dir{}
 		}
 
-		// link dirs with chain
+		// link dirs with next chain
 		for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
 			for depth := 1; depth < DirDepth-1; depth++ {
 				offset := bucket*DirDepth + depth
@@ -229,9 +231,23 @@ func (v *Vol) initEmptyMeta() {
 				dirs[offset].setNext(uint16(offset + 2))
 			}
 		}
+
+		// link dirs with prev chain
+		for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
+			for depth := DirDepth - 1; depth > 1; depth-- {
+				offset := bucket*DirDepth + depth
+				dirs[offset].setPrev(uint16(offset - 1))
+			}
+			if bucket != 0 {
+				offset := bucket*DirDepth + 1
+				// first bucket - chunk 1 has no prev
+				if offset != 1 {
+					dirs[offset].setPrev(uint16(offset - 2))
+				}
+			}
+		}
 		v.Dirs[segId(seg)] = dirs
 	}
-
 }
 
 // TODO(meta): meta checksum, meta version

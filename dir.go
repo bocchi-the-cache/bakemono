@@ -21,6 +21,8 @@ type Dir struct {
 	   unsigned int token : 1;    // (2:15)
 	   unsigned int next : 16;    // (3)
 	   unsigned int offset_high : 16;
+
+	   if unused, raw[2] is `prev`, represents previous dir in freelist.
 	*/
 	raw [5]uint16
 }
@@ -51,6 +53,14 @@ func (d *Dir) setOffset(offset uint64) {
 	d.raw[0] = uint16(offset)
 	d.raw[1] = uint16(((offset >> 16) & 0xff) | (uint64(d.raw[1]) & 0xff00))
 	d.raw[4] = uint16(offset >> 24)
+}
+
+func (d *Dir) prev() uint16 {
+	return d.raw[2]
+}
+
+func (d *Dir) setPrev(prev uint16) {
+	d.raw[2] = prev
 }
 
 func (d *Dir) big() uint8 {
