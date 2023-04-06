@@ -84,6 +84,20 @@ func TestVol_InitEmptyMeta(t *testing.T) {
 		t.Error(err)
 	}
 	v.initEmptyMeta()
+}
+
+func TestVol_FreelistCheck(t *testing.T) {
+	v, _, err := CreateTestingVol("/tmp/bakemono-test.vol", 1024*1024*100, 1024*1024)
+	defer func() {
+		err := os.Remove("/tmp/bakemono-test.vol")
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	if err != nil {
+		t.Error(err)
+	}
+	v.initEmptyMeta()
 
 	// dir check
 	var index uint16
@@ -100,5 +114,19 @@ func TestVol_InitEmptyMeta(t *testing.T) {
 		if counter != int(v.BucketsNumPerSegment*(DirDepth-1)) {
 			t.Errorf("dir free start should be %d, but %d", v.BucketsNumPerSegment, counter)
 		}
+		t.Logf("dir free counter check %d", counter)
+	}
+	//reverse counter
+	for seg := 0; seg < int(v.SegmentsNum); seg++ {
+		index = uint16(v.BucketsNumPerSegment*DirDepth - 1)
+		var counter = 0
+		for index != 0 {
+			counter++
+			index = v.Dirs[segId(seg)][index].prev()
+		}
+		if counter != int(v.BucketsNumPerSegment*(DirDepth-1)) {
+			t.Errorf("dir free start should be %d, but %d", v.BucketsNumPerSegment, counter)
+		}
+		t.Logf("dir free reverse counter check %d", counter)
 	}
 }
