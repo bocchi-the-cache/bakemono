@@ -27,6 +27,14 @@ type Dir struct {
 	raw [5]uint16
 }
 
+func (d *Dir) clear() {
+	d.raw[0] = 0
+	d.raw[1] = 0
+	d.raw[2] = 0
+	d.raw[3] = 0
+	d.raw[4] = 0
+}
+
 func (d *Dir) MarshalBinary() ([]byte, error) {
 	buf := &bytes.Buffer{}
 	err := binary.Write(buf, binary.BigEndian, d.raw)
