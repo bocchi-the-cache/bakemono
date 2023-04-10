@@ -7,12 +7,6 @@ import (
 	"io"
 )
 
-const (
-	ChunkHeaderSizeFixed = 8 * 1 << 10 // 8KB
-	ChunkKeyMaxSize      = 4 * 1 << 10 // 4KB
-	ChunkDataSize        = 1 * 1 << 20 // 1MB
-)
-
 // Chunk is the unit of data storage.
 // Contains a header(meta) and data.
 type Chunk struct {

@@ -16,14 +16,6 @@ type segId uint64
 //	CacheBlockSize  = 1 << CacheBlockShift
 //)
 
-const (
-	MagicBocchi = 0x000b0cc1
-
-	DirDepth = 4
-
-	MaxSegmentSize = 1 << 16 / DirDepth
-)
-
 var (
 	HeaderSize = binary.Size(&VolHeaderFooter{})
 	DirSize    = binary.Size(&Dir{})

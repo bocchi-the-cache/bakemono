@@ -2,8 +2,6 @@ package bakemono
 
 import "os"
 
-const BlockSize = 1 << 12
-
 type Engine struct {
 	path        string
 	SizeMb      uint32

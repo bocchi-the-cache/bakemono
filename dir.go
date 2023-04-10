@@ -3,6 +3,7 @@ package bakemono
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
 // Dir is index unit in cache vol. Inspired by Traffic Server.
@@ -23,8 +24,12 @@ type Dir struct {
 	   unsigned int offset_high : 16;
 
 	   if unused, raw[2] is `prev`, represents previous dir in freelist.
+
+	   approx_size = sectorSize(512) * (2**3big) * size
 	*/
 	raw [5]uint16
+
+	// TODO: data range guard for every field
 }
 
 func (d *Dir) clear() {
@@ -61,6 +66,32 @@ func (d *Dir) setOffset(offset uint64) {
 	d.raw[0] = uint16(offset)
 	d.raw[1] = uint16(((offset >> 16) & 0xff) | (uint64(d.raw[1]) & 0xff00))
 	d.raw[4] = uint16(offset >> 24)
+}
+
+func (d *Dir) setApproxSize(size uint64) {
+	// Note: max size 16MB
+	if size > DirMaxDataSize {
+		panic(fmt.Sprintf("dir setApproxSize %d is too big", size))
+	}
+	if size <= DirDataSizeLv0 {
+		d.setBig(0)
+		d.setSize(uint8((size - 1) / DirDataSizeLv0))
+	} else if size <= DirDataSizeLv1 {
+		d.setBig(1)
+		d.setSize(uint8((size - 1) / DirDataSizeLv1))
+	} else if size <= DirDataSizeLv2 {
+		d.setBig(2)
+		d.setSize(uint8((size - 1) / DirDataSizeLv2))
+	} else {
+		d.setBig(3)
+		d.setSize(uint8((size - 1) / DirDataSizeLv3))
+	}
+}
+
+func (d *Dir) approxSize() uint64 {
+	big := d.big()
+	size := d.size()
+	return (SectorSize << (big * 3)) * uint64(size+1)
 }
 
 func (d *Dir) prev() uint16 {

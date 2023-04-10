@@ -18,13 +18,20 @@ func TestDir_MarshalUnmarshalBinary(t *testing.T) {
 	expectedHead := r.Intn(2) == 1
 	expectedPinned := r.Intn(2) == 1
 	expectedNext := uint16(r.Uint32())
+	expectedApproxSize := uint64(r.Intn(DirMaxDataSize))
+	//expectedPrev := uint16(r.Uint32())
+	expectedToken := r.Intn(2) == 1
+
 	dir.setOffset(expectedOffset)
+	dir.setApproxSize(expectedApproxSize)
+	//dir.setPrev(expectedPrev)
 	dir.setBig(expectedBig)
 	dir.setSize(expectedSize)
 	dir.setTag(expectedTag)
 	dir.setPhase(expectedPhase)
 	dir.setHead(expectedHead)
 	dir.setPinned(expectedPinned)
+	dir.setToken(expectedToken)
 	dir.setNext(expectedNext)
 
 	buf, err := dir.MarshalBinary()
@@ -41,6 +48,17 @@ func TestDir_MarshalUnmarshalBinary(t *testing.T) {
 	if dir2.offset() != expectedOffset {
 		t.Fatalf("expected offset %d, got %d", expectedOffset, dir2.offset())
 	}
+	if dir2.approxSize() != expectedApproxSize {
+		big := dir2.big()
+		size := dir2.size()
+		expectedApproxSize = (SectorSize << (big * 3)) * uint64(size+1)
+		if dir2.approxSize() != expectedApproxSize {
+			t.Fatalf("expected approxSize %d, got %d", expectedApproxSize, dir2.approxSize())
+		}
+	}
+	//if dir2.prev() != expectedPrev {
+	//	t.Fatalf("expected prev %d, got %d", expectedPrev, dir2.prev())
+	//}
 	if dir2.big() != expectedBig {
 		t.Fatalf("expected big %d, got %d", expectedBig, dir2.big())
 	}
@@ -58,6 +76,9 @@ func TestDir_MarshalUnmarshalBinary(t *testing.T) {
 	}
 	if dir2.pinned() != expectedPinned {
 		t.Fatalf("expected pinned %v, got %v", expectedPinned, dir2.pinned())
+	}
+	if dir2.token() != expectedToken {
+		t.Fatalf("expected token %v, got %v", expectedToken, dir2.token())
 	}
 	if dir2.next() != expectedNext {
 		t.Fatalf("expected next %d, got %d", expectedNext, dir2.next())
