@@ -47,6 +47,16 @@ func (c *Chunk) WriteAt(w io.WriterAt, off int64) error {
 	return err
 }
 
+// ReadAt reads the chunk from the reader at the offset.
+func (c *Chunk) ReadAt(r io.ReaderAt, off, size int64) error {
+	data := make([]byte, size+ChunkHeaderSizeFixed)
+	_, err := r.ReadAt(data, off)
+	if err != nil {
+		return err
+	}
+	return c.UnmarshalBinary(data)
+}
+
 // Verify verifies the chunk. It returns nil if the chunk is valid.
 func (c *Chunk) Verify() error {
 	// data length check
