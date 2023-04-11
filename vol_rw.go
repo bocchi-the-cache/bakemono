@@ -95,7 +95,8 @@ func (v *Vol) checkGetRequest(key []byte) (err error) {
 
 func calcDirHashPosition(key []byte, SegmentsNum, BucketsNumPerSegment offset) (keyInt12 uint16, segmentId segId, bucketId offset) {
 	h := md5.New()
-	keyHashed := h.Sum(key)
+	h.Write(key)
+	keyHashed := h.Sum(nil)
 	keyInt64 := binary.BigEndian.Uint64(keyHashed)
 	keyInt12 = uint16(keyInt64 >> 52) // use high 12bit of md5 hash as keyInt16
 	// use high 32bit of md5 hash as segment id, low 32bit as bucket id
