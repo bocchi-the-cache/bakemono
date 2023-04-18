@@ -27,5 +27,5 @@ const (
 
 	DirDepth = 4
 
-	MaxSegmentSize = 1 << 16 / DirDepth
+	MaxBucketsPerSegment = 1 << 16 / DirDepth
 )

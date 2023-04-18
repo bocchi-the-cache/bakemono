@@ -163,7 +163,7 @@ func TestChunkHeader_Marshal_UnmarshalBinary(t *testing.T) {
 }
 
 func TestMaxChunkHeaderSize(t *testing.T) {
-	// calculate the chunk header struct size using reflect
+	// calculate the chunk header struct sizeInternal using reflect
 	// and compare it with the constant ChunkHeaderSizeFixed
 	// if bigger than ChunkHeaderSizeFixed, then the test fails
 	ch := ChunkHeader{
@@ -177,6 +177,6 @@ func TestMaxChunkHeaderSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(b) > ChunkHeaderSizeFixed {
-		t.Fatal("ChunkHeaderSizeFixed is not equal to the calculated size")
+		t.Fatal("ChunkHeaderSizeFixed is not equal to the calculated sizeInternal")
 	}
 }

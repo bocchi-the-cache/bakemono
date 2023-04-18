@@ -26,4 +26,7 @@ clean:
 	@$(GO) clean ./...
 	@rm -f $(BIN)
 
+pressure-app:
+	@$(GO_ENV) $(GO) build $(GO_FLAGS) -o pressure-test ./demo-app/pressure/
+
 all: clean build

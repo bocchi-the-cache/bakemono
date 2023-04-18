@@ -4,19 +4,23 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log"
+	rand2 "math/rand"
+	"os"
 	"time"
 
 	"github.com/bocchi-the-cache/bakemono"
 )
 
-const LOOP = 500000
+const LOOP = 100
 
 func main() {
-	cfg, err := bakemono.NewVolOptionsWithFileTruncate("/tmp/bakemono-test.vol", 1024*1024*1000, 1024*1024)
+	_ = os.Remove("/tmp/bakemono-test.vol")
+
+	cfg, err := bakemono.NewVolOptionsWithFileTruncate("/tmp/bakemono-test.vol", 1024*512*1000, 1024*1024)
 	if err != nil {
 		panic(err)
 	}
-	v := bakemono.Vol{}
+	v := &bakemono.Vol{}
 	corrupted, err := v.Init(cfg)
 	if err != nil {
 		panic(err)
@@ -25,20 +29,34 @@ func main() {
 		log.Printf("vol is corrupted, but fixed. ignore this if first time running.")
 	}
 
+	for i := 0; i < 100; i++ {
+		log.Printf(fmt.Sprintf("--------------------------------- start loop #%d", i))
+		CacheRWLoop(v)
+	}
+}
+
+func CacheRWLoop(v *bakemono.Vol) {
 	// pad randomData with random data
-	randomData := make([]byte, 1024*892)
+	randomKey := rand2.Int63()
+	randomSize := rand2.Intn(512)
+	randomData := make([]byte, 1024*randomSize)
 	rand.Read(randomData)
 
 	t := time.Now()
 
 	for i := 0; i < LOOP; i++ {
 		if i%10000 == 0 {
-			log.Printf("++ set key-%d", i)
+			log.Printf("++ set key-%d-%d", randomKey, i)
 		}
-		err := v.Set([]byte(fmt.Sprintf("key-%d", i)), randomData)
+		err := v.Set([]byte(fmt.Sprintf("key-%d-%d", randomKey, i)), randomData)
 		if err != nil {
 			panic(err)
 		}
+		//loop := v.DirCheckNextLoop()
+		//if loop {
+		//	panic("loop should not be true")
+		//}
+		//v.DirDebugPrint()
 
 	}
 	log.Printf("set LOOP keys in %s", time.Since(t))
@@ -49,22 +67,22 @@ func main() {
 		if i%10000 == 0 {
 			log.Printf("-- get key-%d", i)
 		}
-		data, err := v.Get([]byte(fmt.Sprintf("key-%d", i)))
+		hit, data, err := v.Get([]byte(fmt.Sprintf("key-%d-%d", randomKey, i)))
+		if !hit {
+			counter["miss"]++
+		}
 		if err != nil {
-			if err == bakemono.ErrCacheMiss {
-				counter["miss"]++
-				continue
-			} else {
-				panic(err)
-			}
+			panic(err)
 		}
 		counter["hit"]++
-		if len(data) != 1024*892 {
-			panic("data length is not 1024*892")
+		if len(data) != 1024*randomSize {
+			panic("data length is not 1024*randomSize")
 		}
-		//if string(data) != string(randomData) {
-		//	panic("data is not equal")
-		//}
+		dataS := string(data)
+		randomS := string(randomData)
+		if dataS != randomS {
+			panic("data is not equal")
+		}
 	}
 	log.Printf("get LOOP keys in %s", time.Since(t))
 	log.Printf("hit: %d, miss: %d", counter["hit"], counter["miss"])

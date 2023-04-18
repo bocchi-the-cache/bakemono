@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-type offset uint64
+type Offset uint64
 type segId uint64
 
 //const (
@@ -27,53 +27,47 @@ var (
 type Vol struct {
 	Path string
 	Fp   OffsetReaderWriterCloser
+	Dm   *DirManager
 
 	Header *VolHeaderFooter
-	// map segment id to dirs
-	Dirs         map[segId][]*Dir
-	DirFreeStart map[segId]uint16
 
 	SectorSize uint32
+	Length     Offset
+	ChunkSize  Offset
+	ChunksNum  Offset
 
-	Length               offset
-	ChunkSize            offset
-	ChunksNum            offset
-	SegmentsNum          offset
-	BucketsNum           offset
-	BucketsNumPerSegment offset
-
-	HeaderAOffset offset
-	FooterAOffset offset
-	HeaderBOffset offset
-	FooterBOffset offset
-	DataOffset    offset
+	HeaderAOffset Offset
+	FooterAOffset Offset
+	HeaderBOffset Offset
+	FooterBOffset Offset
+	DataOffset    Offset
 }
 
 // VolOptions to init a Vol.
 // Note: do file open/truncate outside.
 type VolOptions struct {
 	Fp        OffsetReaderWriterCloser
-	FileSize  offset
-	ChunkSize offset
+	FileSize  Offset
+	ChunkSize Offset
 }
 
 // NewVolOptionsWithFileTruncate creates a VolOptions with a file path.
-// Note: It will create a file if not exists, and truncate it to the given size.
+// Note: It will create a file if not exists, and truncate it to the given sizeInternal.
 func NewVolOptionsWithFileTruncate(path string, fileSize, chunkSize uint64) (*VolOptions, error) {
 	log.Printf("creating vol options with file truncate, path: %s, fileSize: %d, chunkSize: %d", path, fileSize, chunkSize)
 	fp, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("file opened, try to truncate to size: %d", fileSize)
+	log.Printf("file opened, try to truncate to sizeInternal: %d", fileSize)
 	err = fp.Truncate(int64(fileSize))
 	if err != nil {
 		return nil, err
 	}
 	return &VolOptions{
 		Fp:        fp,
-		FileSize:  offset(fileSize),
-		ChunkSize: offset(chunkSize),
+		FileSize:  Offset(fileSize),
+		ChunkSize: Offset(chunkSize),
 	}, nil
 }
 
@@ -104,24 +98,27 @@ func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 
 	// calculate vol offsets
 	v.prepareOffsets(cfg)
+	v.initEmptyMeta()
 
 	// validate disk file
-	err = v.validateFp()
-	if err != nil {
-		log.Printf("validate file failed, cache file may be corrupted or not initialized, err: %v", err)
+	// TODO: meta flush/restore from disk
 
-		v.initEmptyMeta()
-		corrupted = true
-
-		err = v.flushMetaToFp()
-		if err != nil {
-			log.Printf("init file failed, err: %v", err)
-			return corrupted, err
-		}
-	}
-
-	// rebuild from meta
-	err = v.buildMetaFromFp()
+	//err = v.validateFp()
+	//if err != nil {
+	//	log.Printf("validate file failed, cache file may be corrupted or not initialized, err: %v", err)
+	//
+	//	v.initEmptyMeta()
+	//	corrupted = true
+	//
+	//	err = v.flushMetaToFp()
+	//	if err != nil {
+	//		log.Printf("init file failed, err: %v", err)
+	//		return corrupted, err
+	//	}
+	//}
+	//
+	//// rebuild from meta
+	//err = v.buildMetaFromFp()
 
 	log.Printf("init vol done, corrupted: %v, err: %v", corrupted, err)
 	return corrupted, nil
@@ -131,10 +128,10 @@ func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 func (v *Vol) prepareOffsets(cfg *VolOptions) {
 	v.SectorSize = 512
 
-	// calculate size to allocate
+	// calculate sizeInternal to allocate
 	// Meta_A(header, dirs, footer) + Meta_B(header, dirs, footer) + Data(Chunks)
-	HeaderFooterSize := offset(HeaderSize)
-	DirSize := offset(binary.Size(&Dir{}))
+	HeaderFooterSize := Offset(HeaderSize)
+	DirSize := Offset(binary.Size(&Dir{}))
 	TotalChunks := (cfg.FileSize - 4*HeaderFooterSize) / (cfg.ChunkSize + 2*DirSize)
 	MetaSize := 2 * (HeaderFooterSize + TotalChunks*DirSize)
 	DataSize := TotalChunks * cfg.ChunkSize
@@ -151,16 +148,13 @@ func (v *Vol) prepareOffsets(cfg *VolOptions) {
 	// calculate block number
 	v.Length = ActualFileSize
 	v.ChunksNum = TotalChunks
-	v.BucketsNum = TotalChunks / DirDepth
-	v.SegmentsNum = (v.BucketsNum + MaxSegmentSize - 1) / MaxSegmentSize
-	v.BucketsNumPerSegment = (v.BucketsNum + v.SegmentsNum - 1) / v.SegmentsNum
-	log.Printf("initing vol: ActualLength: %d, ChunksNum: %d, BucketsNum: %d, SegmentsNum: %d, BucketsNumPerSegment: %d", v.Length, v.ChunksNum, v.BucketsNum, v.SegmentsNum, v.BucketsNumPerSegment)
+	log.Printf("initing vol: ActualLength: %d, ChunksNum: %d", v.Length, v.ChunksNum)
 }
 
 // validateFp validates the io with metadata.
 func (v *Vol) validateFp() error {
 	// read header
-	offsets := []offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
+	offsets := []Offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
 	var headFooters []*VolHeaderFooter
 	size := HeaderSize
 	for _, off := range offsets {
@@ -196,50 +190,9 @@ func (v *Vol) initEmptyMeta() {
 		WriteSerial:    0,
 	}
 
-	// init dirs
-	v.Dirs = make(map[segId][]*Dir)
-	v.DirFreeStart = make(map[segId]uint16)
-
-	for seg := 0; seg < int(v.SegmentsNum); seg++ {
-		ChunkNumPerSegment := v.BucketsNumPerSegment * DirDepth
-		dirs := make([]*Dir, ChunkNumPerSegment)
-
-		// first free chunk for conclusion
-		v.DirFreeStart[segId(seg)] = 1
-
-		// init all dirs as empty
-		for i := 0; i < len(dirs); i++ {
-			dirs[i] = &Dir{}
-		}
-
-		// link dirs with next chain
-		for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
-			for depth := 1; depth < DirDepth-1; depth++ {
-				offset := bucket*DirDepth + depth
-				dirs[offset].setNext(uint16(offset + 1))
-			}
-			if bucket != int(v.BucketsNumPerSegment)-1 {
-				offset := bucket*DirDepth + DirDepth - 1
-				dirs[offset].setNext(uint16(offset + 2))
-			}
-		}
-
-		// link dirs with prev chain
-		for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
-			for depth := DirDepth - 1; depth > 1; depth-- {
-				offset := bucket*DirDepth + depth
-				dirs[offset].setPrev(uint16(offset - 1))
-			}
-			if bucket != 0 {
-				offset := bucket*DirDepth + 1
-				// first bucket - chunk 1 has no prev
-				if offset != 1 {
-					dirs[offset].setPrev(uint16(offset - 2))
-				}
-			}
-		}
-		v.Dirs[segId(seg)] = dirs
-	}
+	v.Dm = &DirManager{}
+	v.Dm.Init(v.ChunksNum)
+	v.Dm.InitEmptyDirs()
 }
 
 // TODO(meta): meta checksum, meta version
@@ -260,31 +213,31 @@ func (v *Vol) buildMetaFromFp() error {
 	v.Header = h
 
 	// read dirs
-	v.Dirs = make(map[segId][]*Dir)
-	v.DirFreeStart = make(map[segId]uint16)
-	for seg := 0; seg < int(v.SegmentsNum); seg++ {
-		dirs := make([]*Dir, v.BucketsNumPerSegment*DirDepth)
-		for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
-			for depth := 0; depth < DirDepth; depth++ {
-				dirIndex := bucket*DirDepth + depth
-				dirs[dirIndex] = &Dir{}
-				data := make([]byte, binary.Size(dirs[dirIndex]))
-
-				pos := v.HeaderAOffset + offset(HeaderSize) + offset(dirIndex*DirSize)
-				_, err := v.Fp.ReadAt(data, int64(pos))
-				if err != nil {
-					return err
-				}
-				err = dirs[dirIndex].UnmarshalBinary(data)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		v.Dirs[segId(seg)] = dirs
-		// TODO: dump free start
-		//v.DirFreeStart[segId(seg)] = uint16(seg)*uint16(v.BucketsNumPerSegment*DirDepth) + 1
-	}
+	//v.Dirs = make(map[segId][]*Dir)
+	//v.DirFreeStart = make(map[segId]uint16)
+	//for seg := 0; seg < int(v.SegmentsNum); seg++ {
+	//	dirs := make([]*Dir, v.BucketsNumPerSegment*DirDepth)
+	//	for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
+	//		for depth := 0; depth < DirDepth; depth++ {
+	//			dirIndex := bucket*DirDepth + depth
+	//			dirs[dirIndex] = &Dir{}
+	//			data := make([]byte, binary.Size(dirs[dirIndex]))
+	//
+	//			pos := v.HeaderAOffset + offset(HeaderSize) + offset(dirIndex*DirSize)
+	//			_, err := v.Fp.ReadAt(data, int64(pos))
+	//			if err != nil {
+	//				return err
+	//			}
+	//			err = dirs[dirIndex].UnmarshalBinary(data)
+	//			if err != nil {
+	//				return err
+	//			}
+	//		}
+	//	}
+	//	v.Dirs[segId(seg)] = dirs
+	//	// TODO: dump free start
+	//	//v.DirFreeStart[segId(seg)] = uint16(seg)*uint16(v.BucketsNumPerSegment*DirDepth) + 1
+	//}
 	return nil
 }
 
@@ -306,7 +259,7 @@ func (v *Vol) flushHeaderFooterToFp() error {
 	if err != nil {
 		return err
 	}
-	offsets := []offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
+	offsets := []Offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
 	for _, off := range offsets {
 		_, err = v.Fp.WriteAt(data, int64(off))
 		if err != nil {
@@ -317,19 +270,19 @@ func (v *Vol) flushHeaderFooterToFp() error {
 }
 
 func (v *Vol) flushDirsToFp() error {
-	for seg := 0; seg < int(v.SegmentsNum); seg++ {
-		dirs := v.Dirs[segId(seg)]
-		for i := 0; i < len(dirs); i++ {
-			data, err := dirs[i].MarshalBinary()
-			if err != nil {
-				return err
-			}
-			off := v.HeaderAOffset + offset(HeaderSize) + offset(i*DirSize)
-			_, err = v.Fp.WriteAt(data, int64(off))
-			if err != nil {
-				return err
-			}
-		}
-	}
+	//for seg := 0; seg < int(v.SegmentsNum); seg++ {
+	//	dirs := v.Dirs[segId(seg)]
+	//	for i := 0; i < len(dirs); i++ {
+	//		data, err := dirs[i].MarshalBinary()
+	//		if err != nil {
+	//			return err
+	//		}
+	//		off := v.HeaderAOffset + offset(HeaderSize) + offset(i*DirSize)
+	//		_, err = v.Fp.WriteAt(data, int64(off))
+	//		if err != nil {
+	//			return err
+	//		}
+	//	}
+	//}
 	return nil
 }

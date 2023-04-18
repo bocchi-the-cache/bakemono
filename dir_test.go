@@ -25,8 +25,8 @@ func TestDir_MarshalUnmarshalBinary(t *testing.T) {
 	dir.setOffset(expectedOffset)
 	dir.setApproxSize(expectedApproxSize)
 	//dir.setPrev(expectedPrev)
-	dir.setBig(expectedBig)
-	dir.setSize(expectedSize)
+	dir.setBigInternal(expectedBig)
+	dir.setSizeInternal(expectedSize)
 	dir.setTag(expectedTag)
 	dir.setPhase(expectedPhase)
 	dir.setHead(expectedHead)
@@ -49,8 +49,8 @@ func TestDir_MarshalUnmarshalBinary(t *testing.T) {
 		t.Fatalf("expected offset %d, got %d", expectedOffset, dir2.offset())
 	}
 	if dir2.approxSize() != expectedApproxSize {
-		big := dir2.big()
-		size := dir2.size()
+		big := dir2.bigInternal()
+		size := dir2.sizeInternal()
 		expectedApproxSize = (SectorSize << (big * 3)) * uint64(size+1)
 		if dir2.approxSize() != expectedApproxSize {
 			t.Fatalf("expected approxSize %d, got %d", expectedApproxSize, dir2.approxSize())
@@ -59,11 +59,11 @@ func TestDir_MarshalUnmarshalBinary(t *testing.T) {
 	//if dir2.prev() != expectedPrev {
 	//	t.Fatalf("expected prev %d, got %d", expectedPrev, dir2.prev())
 	//}
-	if dir2.big() != expectedBig {
-		t.Fatalf("expected big %d, got %d", expectedBig, dir2.big())
+	if dir2.bigInternal() != expectedBig {
+		t.Fatalf("expected bigInternal %d, got %d", expectedBig, dir2.bigInternal())
 	}
-	if dir2.size() != expectedSize {
-		t.Fatalf("expected size %d, got %d", expectedSize, dir2.size())
+	if dir2.sizeInternal() != expectedSize {
+		t.Fatalf("expected sizeInternal %d, got %d", expectedSize, dir2.sizeInternal())
 	}
 	if dir2.tag() != expectedTag {
 		t.Fatalf("expected tag %d, got %d", expectedTag, dir2.tag())
@@ -109,8 +109,8 @@ func testDirOnce(t *testing.T) {
 
 			setters := []func(){
 				func() { dir.setOffset(expectedOffset) },
-				func() { dir.setBig(expectedBig) },
-				func() { dir.setSize(expectedSize) },
+				func() { dir.setBigInternal(expectedBig) },
+				func() { dir.setSizeInternal(expectedSize) },
 				func() { dir.setTag(expectedTag) },
 				func() { dir.setPhase(expectedPhase) },
 				func() { dir.setHead(expectedHead) },
@@ -131,8 +131,8 @@ func testDirOnce(t *testing.T) {
 
 			convey.Convey("Then getting the same fields should return the expected values", func() {
 				convey.So(dir.offset(), convey.ShouldEqual, expectedOffset)
-				convey.So(dir.big(), convey.ShouldEqual, expectedBig)
-				convey.So(dir.size(), convey.ShouldEqual, expectedSize)
+				convey.So(dir.bigInternal(), convey.ShouldEqual, expectedBig)
+				convey.So(dir.sizeInternal(), convey.ShouldEqual, expectedSize)
 				convey.So(dir.tag(), convey.ShouldEqual, expectedTag)
 				convey.So(dir.phase(), convey.ShouldEqual, expectedPhase)
 				convey.So(dir.head(), convey.ShouldEqual, expectedHead)

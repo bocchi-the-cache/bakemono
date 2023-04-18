@@ -13,8 +13,8 @@ import (
 type Dir struct {
 	/*
 	   unsigned int offset : 24;  // (0,1:0-7)
-	   unsigned int big : 2;      // (1:8-9)
-	   unsigned int size : 6;     // (1:10-15)
+	   unsigned int bigInternal : 2;      // (1:8-9)
+	   unsigned int sizeInternal : 6;     // (1:10-15)
 	   unsigned int tag : 12;     // (2:0-11)
 	   unsigned int phase : 1;    // (2:12)
 	   unsigned int head : 1;     // (2:13)
@@ -25,7 +25,7 @@ type Dir struct {
 
 	   if unused, raw[2] is `prev`, represents previous dir in freelist.
 
-	   approx_size = sectorSize(512) * (2**3big) * size
+	   approx_size = sectorSize(512) * (2**3big) * sizeInternal
 	*/
 	raw [5]uint16
 
@@ -69,28 +69,28 @@ func (d *Dir) setOffset(offset uint64) {
 }
 
 func (d *Dir) setApproxSize(size uint64) {
-	// Note: max size 16MB
+	// Note: max sizeInternal 16MB
 	if size > DirMaxDataSize {
-		panic(fmt.Sprintf("dir setApproxSize %d is too big", size))
+		panic(fmt.Sprintf("dir setApproxSize %d is too bigInternal", size))
 	}
 	if size <= DirDataSizeLv0 {
-		d.setBig(0)
-		d.setSize(uint8((size - 1) / DirDataSizeLv0))
+		d.setBigInternal(0)
+		d.setSizeInternal(uint8((size - 1) / DirDataSizeLv0))
 	} else if size <= DirDataSizeLv1 {
-		d.setBig(1)
-		d.setSize(uint8((size - 1) / DirDataSizeLv1))
+		d.setBigInternal(1)
+		d.setSizeInternal(uint8((size - 1) / DirDataSizeLv1))
 	} else if size <= DirDataSizeLv2 {
-		d.setBig(2)
-		d.setSize(uint8((size - 1) / DirDataSizeLv2))
+		d.setBigInternal(2)
+		d.setSizeInternal(uint8((size - 1) / DirDataSizeLv2))
 	} else {
-		d.setBig(3)
-		d.setSize(uint8((size - 1) / DirDataSizeLv3))
+		d.setBigInternal(3)
+		d.setSizeInternal(uint8((size - 1) / DirDataSizeLv3))
 	}
 }
 
 func (d *Dir) approxSize() uint64 {
-	big := d.big()
-	size := d.size()
+	big := d.bigInternal()
+	size := d.sizeInternal()
 	return (SectorSize << (big * 3)) * uint64(size+1)
 }
 
@@ -102,19 +102,19 @@ func (d *Dir) setPrev(prev uint16) {
 	d.raw[2] = prev
 }
 
-func (d *Dir) big() uint8 {
+func (d *Dir) bigInternal() uint8 {
 	return uint8(d.raw[1] >> 8 & 0x3)
 }
 
-func (d *Dir) setBig(big uint8) {
+func (d *Dir) setBigInternal(big uint8) {
 	d.raw[1] = (d.raw[1] & 0xfcff) | uint16(big)<<8
 }
 
-func (d *Dir) size() uint8 {
+func (d *Dir) sizeInternal() uint8 {
 	return uint8(d.raw[1] >> 10 & 0x3f)
 }
 
-func (d *Dir) setSize(size uint8) {
+func (d *Dir) setSizeInternal(size uint8) {
 	d.raw[1] = (d.raw[1] & 0x83ff) | uint16(size)<<10
 }
 

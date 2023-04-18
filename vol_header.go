@@ -9,7 +9,7 @@ import (
 type VolHeaderFooter struct {
 	Magic          uint32
 	CreateUnixTime int64
-	WritePos       offset
+	WritePos       Offset
 	SyncSerial     uint64
 	WriteSerial    uint64
 }
