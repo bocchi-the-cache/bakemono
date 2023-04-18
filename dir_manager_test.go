@@ -335,7 +335,7 @@ func TestDirManager_PurgeRandom10WhenFull(t *testing.T) {
 
 	// purge 10 random dirs
 	for seg := segId(0); Offset(seg) < dm.SegmentsNum; seg++ {
-		p := dm.purgeRandom10(seg)
+		p := dm.purgeRandom10(seg, 0)
 		t.Logf("seg %v purge 10 random dirs: %v", seg, p)
 	}
 
@@ -376,7 +376,7 @@ func TestDirManager_FreeChainPop(t *testing.T) {
 
 	// pop 10 random dirs
 	for seg := segId(0); Offset(seg) < dm.SegmentsNum; seg++ {
-		p := dm.freeChainPop(seg)
+		p := dm.freeChainPop(seg, 0)
 		t.Logf("seg %v pop 10 random dirs: %v", seg, p)
 	}
 

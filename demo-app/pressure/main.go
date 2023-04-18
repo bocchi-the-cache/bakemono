@@ -11,7 +11,7 @@ import (
 	"github.com/bocchi-the-cache/bakemono"
 )
 
-const LOOP = 5000
+const LOOP = 50000
 
 func main() {
 	_ = os.Remove("/tmp/bakemono-test.vol")
@@ -29,7 +29,7 @@ func main() {
 		log.Printf("vol is corrupted, but fixed. ignore this if first time running.")
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1000; i++ {
 		log.Printf(fmt.Sprintf("--------------------------------- start loop #%d", i))
 		CacheRWLoop(v)
 	}

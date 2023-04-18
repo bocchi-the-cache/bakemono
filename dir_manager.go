@@ -224,10 +224,10 @@ func (dm *DirManager) getFreeDir(segmentId segId, bucketId Offset) (isSameBucket
 		}
 	}
 	// pop a free dir from free chain
-	return false, dm.freeChainPop(segmentId)
+	return false, dm.freeChainPop(segmentId, bucketId)
 }
 
-func (dm *DirManager) freeChainPop(segmentId segId) (freeDirOffset Offset) {
+func (dm *DirManager) freeChainPop(segmentId segId, whileListBucketId Offset) (freeDirOffset Offset) {
 	loop := 0
 FindFreeDir:
 	loop++
@@ -245,7 +245,7 @@ FindFreeDir:
 
 		// purge some dirs
 		if foundFreeDir == 0 {
-			purgedNum := dm.purgeRandom10(segmentId)
+			purgedNum := dm.purgeRandom10(segmentId, whileListBucketId)
 			log.Printf("dirFreeChainPop: no free dir, purge %d dirs", purgedNum)
 			goto FindFreeDir
 		}
@@ -290,17 +290,23 @@ func (dm *DirManager) freeChainRebuild(segmentId segId) Offset {
 
 // purgeRandom10 purges 10% dirs in the segment randomly.
 // if bucketsNumPerSegment < 10, purge all dirs
-func (dm *DirManager) purgeRandom10(segmentId segId) Offset {
+func (dm *DirManager) purgeRandom10(segmentId segId, whileListBucketId Offset) Offset {
 	randomIndex := rand.Intn(10)
 	counter := 0
 	for i := Offset(0); i < dm.BucketsNumPerSegment; i++ {
 		if (dm.BucketsNumPerSegment > 10) && (i%10 != Offset(randomIndex)) {
 			continue
 		}
+		if i == whileListBucketId {
+			continue
+		}
 		// purge whole bucket
 		index := Offset(i) * DirDepth
-		for index != 0 {
+		c := 0 // do while
+		for index != 0 || c == 0 {
 			counter++
+			c++
+
 			next := Offset(dm.Dirs[segmentId][index].next())
 			dm.Dirs[segmentId][index].clear()
 			index = next
