@@ -16,7 +16,7 @@ func (v *Vol) Set(key, value []byte) (err error) {
 
 	log.Printf("DEBUG: write data")
 	// write data
-	writeOffset := uint64(dirOffset * v.ChunkSize)
+	writeOffset := uint64(v.DataOffset + dirOffset*v.ChunkSize)
 
 	ck := &Chunk{}
 	err = ck.Set(key, value)
@@ -54,7 +54,7 @@ func (v *Vol) Get(key []byte) (hit bool, value []byte, err error) {
 	}
 
 	// read data
-	readOffset := uint64(dirOffset * v.ChunkSize)
+	readOffset := uint64(v.DataOffset + dirOffset*v.ChunkSize)
 	approxSize := d.approxSize()
 
 	ck := &Chunk{}

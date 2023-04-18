@@ -11,7 +11,7 @@ import (
 	"github.com/bocchi-the-cache/bakemono"
 )
 
-const LOOP = 100
+const LOOP = 5000
 
 func main() {
 	_ = os.Remove("/tmp/bakemono-test.vol")
@@ -29,7 +29,7 @@ func main() {
 		log.Printf("vol is corrupted, but fixed. ignore this if first time running.")
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		log.Printf(fmt.Sprintf("--------------------------------- start loop #%d", i))
 		CacheRWLoop(v)
 	}
@@ -70,17 +70,27 @@ func CacheRWLoop(v *bakemono.Vol) {
 		hit, data, err := v.Get([]byte(fmt.Sprintf("key-%d-%d", randomKey, i)))
 		if !hit {
 			counter["miss"]++
+		} else {
+			counter["hit"]++
 		}
 		if err != nil {
 			panic(err)
 		}
-		counter["hit"]++
+
+		if !hit {
+			continue
+		}
+
 		if len(data) != 1024*randomSize {
+			log.Printf("data len %v", len(data))
+			log.Printf("random len %v", 1024*randomSize)
 			panic("data length is not 1024*randomSize")
 		}
 		dataS := string(data)
 		randomS := string(randomData)
 		if dataS != randomS {
+			log.Printf("dataS %s", dataS)
+			log.Printf("randomS %s", randomS)
 			panic("data is not equal")
 		}
 	}
