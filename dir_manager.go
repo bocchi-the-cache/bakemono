@@ -186,9 +186,15 @@ func (dm *DirManager) Set(key []byte, off Offset, size int) (dirOffset Offset, e
 }
 
 func (dm *DirManager) dirInsert(key uint16, segmentId segId, bucketId Offset, dir Dir) (dirOffset Offset, err error) {
-	hit, dirOffset, _ := dirProbe(key, bucketId, dm.Dirs[segmentId])
+	hit, dirOffset, dOld := dirProbe(key, bucketId, dm.Dirs[segmentId])
 	if hit {
-		dm.Dirs[segmentId][dirOffset] = &dir
+		// Note: set manually is dangerous, need to keep the next chain
+		dOld.setOffset(dir.offset())
+		dOld.setApproxSize(dir.approxSize())
+		dOld.setHead(true)
+		dOld.setTag(dir.tag())
+
+		dm.Dirs[segmentId][dirOffset] = &dOld
 		return dirOffset, nil
 	}
 

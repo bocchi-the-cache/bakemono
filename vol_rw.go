@@ -1,11 +1,9 @@
 package bakemono
 
-import "log"
-
 const MaxKeyLength = 4096
 
 func (v *Vol) Set(key, value []byte) (err error) {
-	log.Printf("DEBUG: set key: %s, value_len: %d", key, len(value))
+	//log.Printf("DEBUG: set key: %s, value_len: %d", key, len(value))
 	err = v.checkSetRequest(key, value)
 	if err != nil {
 		return err
@@ -14,7 +12,7 @@ func (v *Vol) Set(key, value []byte) (err error) {
 	// could set offset into dir, but we use dirOffset->chunkOffset for now
 	dirOffset, err := v.Dm.Set(key, Offset(1), len(value))
 
-	log.Printf("DEBUG: write data")
+	//log.Printf("DEBUG: write data")
 	// write data
 	writeOffset := uint64(v.DataOffset + dirOffset*v.ChunkSize)
 
@@ -41,7 +39,7 @@ func (v *Vol) checkSetRequest(key, value []byte) (err error) {
 }
 
 func (v *Vol) Get(key []byte) (hit bool, value []byte, err error) {
-	log.Printf("DEBUG: get key: %s", key)
+	//log.Printf("DEBUG: get key: %s", key)
 	err = v.checkGetRequest(key)
 	if err != nil {
 		return false, nil, err
