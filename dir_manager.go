@@ -198,6 +198,13 @@ func (dm *DirManager) dirInsert(key uint16, segmentId segId, bucketId Offset, di
 		return dirOffset, nil
 	}
 
+	ddp := dm.DiagDumpAllDirsToString()
+	err = dm.DiagPanicHangUpDirs()
+	if err != nil {
+		log.Printf("----------- diags: dumps all dirs no modify: \n%s", ddp)
+		panic(err)
+	}
+
 	// get a free dir
 	_, freeDirOffset := dm.getFreeDir(segmentId, bucketId)
 
@@ -213,6 +220,12 @@ func (dm *DirManager) dirInsert(key uint16, segmentId segId, bucketId Offset, di
 		dm.Dirs[segmentId][lastDirOfBucket].setNext(uint16(freeDirOffset))
 	}
 
+	err = dm.DiagPanicHangUpDirs()
+	if err != nil {
+		log.Printf("----------- diags: dumps all dirs before: \n%s", ddp)
+		log.Printf("----------- diags: dumps all dirs after: \n%s", dm.DiagDumpAllDirsToString())
+		panic(err)
+	}
 	return freeDirOffset, nil
 }
 
@@ -237,6 +250,10 @@ func (dm *DirManager) freeChainPop(segmentId segId, whileListBucketId Offset) (f
 	loop := 0
 FindFreeDir:
 	loop++
+	if loop > 49 {
+		purgedNum := dm.purgeRandom100(segmentId, whileListBucketId)
+		log.Printf("dirFreeChainPop: loop too much, purge 100: %d dirs", purgedNum)
+	}
 	if loop > 50 {
 		// should not happen after many purge
 		// TODO: remove panic once stable
@@ -247,12 +264,13 @@ FindFreeDir:
 	if index == 0 {
 		// try to rebuild the free chain
 		foundFreeDir := dm.freeChainRebuild(segmentId)
-		log.Printf("dirFreeChainPop: no free dir, rebuild %d dirs", foundFreeDir)
+		//log.Printf("dirFreeChainPop: no free dir, rebuild %d dirs", foundFreeDir)
 
 		// purge some dirs
 		if foundFreeDir == 0 {
-			purgedNum := dm.purgeRandom10(segmentId, whileListBucketId)
-			log.Printf("dirFreeChainPop: no free dir, purge %d dirs", purgedNum)
+			//purgedNum := dm.purgeRandom10(segmentId, whileListBucketId)
+			_ = dm.purgeRandom10(segmentId, whileListBucketId)
+			//log.Printf("dirFreeChainPop: no free dir, purge %d dirs", purgedNum)
 			goto FindFreeDir
 		}
 	}
@@ -303,6 +321,62 @@ func (dm *DirManager) purgeRandom10(segmentId segId, whileListBucketId Offset) O
 		if (dm.BucketsNumPerSegment > 10) && (i%10 != Offset(randomIndex)) {
 			continue
 		}
+		if i == whileListBucketId {
+			continue
+		}
+		// purge whole bucket
+		index := Offset(i) * DirDepth
+		c := 0 // do while
+		for index != 0 || c == 0 {
+			counter++
+			c++
+
+			next := Offset(dm.Dirs[segmentId][index].next())
+			dm.Dirs[segmentId][index].clear()
+			index = next
+		}
+	}
+
+	dm.freeChainRebuild(segmentId)
+
+	return Offset(counter)
+}
+
+// purgeRandom33 purges 33% dirs in the segment randomly.
+// if bucketsNumPerSegment < 3, purge all dirs
+func (dm *DirManager) purgeRandom33(segmentId segId, whileListBucketId Offset) Offset {
+	randomIndex := rand.Intn(3)
+	counter := 0
+	for i := Offset(0); i < dm.BucketsNumPerSegment; i++ {
+		if (dm.BucketsNumPerSegment > 3) && (i%3 != Offset(randomIndex)) {
+			continue
+		}
+		if i == whileListBucketId {
+			continue
+		}
+		// purge whole bucket
+		index := Offset(i) * DirDepth
+		c := 0 // do while
+		for index != 0 || c == 0 {
+			counter++
+			c++
+
+			next := Offset(dm.Dirs[segmentId][index].next())
+			dm.Dirs[segmentId][index].clear()
+			index = next
+		}
+	}
+
+	dm.freeChainRebuild(segmentId)
+
+	return Offset(counter)
+}
+
+// purgeRandom100 purges 100% dirs in the segment randomly.
+// if bucketsNumPerSegment < 3, purge all dirs
+func (dm *DirManager) purgeRandom100(segmentId segId, whileListBucketId Offset) Offset {
+	counter := 0
+	for i := Offset(0); i < dm.BucketsNumPerSegment; i++ {
 		if i == whileListBucketId {
 			continue
 		}

@@ -29,7 +29,7 @@ func main() {
 		log.Printf("vol is corrupted, but fixed. ignore this if first time running.")
 	}
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 100000; i++ {
 		log.Printf(fmt.Sprintf("--------------------------------- start loop #%d", i))
 		CacheRWLoop(v)
 	}
