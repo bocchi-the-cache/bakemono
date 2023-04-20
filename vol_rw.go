@@ -68,9 +68,16 @@ func (v *Vol) Get(key []byte) (hit bool, value []byte, err error) {
 	ck := &Chunk{}
 	err = ck.ReadAt(v.Fp, int64(readOffset), int64(approxSize))
 	if err != nil {
+		log.Printf("warning: failed to read data chunk. key: %s, offset: %d, approxSize: %d, err: %s", key, readOffset, approxSize, err)
 		return false, nil, err
 	}
-	return true, ck.DataRaw, nil
+	ckKey, ckData := ck.GetKeyData()
+	if string(ckKey) != string(key) {
+		log.Printf("warning: key mismatch. key: %s, ckKey: %s", key, ckKey)
+		return false, nil, nil
+	}
+
+	return true, ckData, nil
 }
 
 func (v *Vol) checkGetRequest(key []byte) (err error) {

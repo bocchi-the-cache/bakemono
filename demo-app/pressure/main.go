@@ -11,7 +11,7 @@ import (
 	"github.com/bocchi-the-cache/bakemono"
 )
 
-const LOOP = 50000
+const LOOP = 5000
 
 func main() {
 	_ = os.Remove("/tmp/bakemono-test.vol")

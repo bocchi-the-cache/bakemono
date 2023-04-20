@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"sync"
 )
 
 // DirManager manages the dirs attached to a vol.
@@ -18,17 +19,25 @@ type DirManager struct {
 	// map segment id to dirs
 	Dirs         map[segId][]*Dir
 	DirFreeStart map[segId]uint16
+
+	// rw mutex for each segment
+	SegMutexes map[segId]*sync.RWMutex
 }
 
 func (dm *DirManager) Init(dirNum Offset) {
 	dm.Dirs = make(map[segId][]*Dir)
 	dm.DirFreeStart = make(map[segId]uint16)
+	dm.SegMutexes = make(map[segId]*sync.RWMutex)
 
 	dm.BucketsNum = dirNum / DirDepth
 	dm.SegmentsNum = (dm.BucketsNum + MaxBucketsPerSegment - 1) / MaxBucketsPerSegment
 	dm.BucketsNumPerSegment = (dm.BucketsNum + dm.SegmentsNum - 1) / dm.SegmentsNum
 
 	dm.ChunksNum = dm.BucketsNumPerSegment * DirDepth * dm.SegmentsNum
+
+	for i := 0; i < int(dm.SegmentsNum); i++ {
+		dm.SegMutexes[segId(i)] = &sync.RWMutex{}
+	}
 	log.Printf("initing dir manager: ChunksNum: %d, BucketsNum: %d, SegmentsNum: %d, BucketsNumPerSegment: %d", dm.ChunksNum, dm.BucketsNum, dm.SegmentsNum, dm.BucketsNumPerSegment)
 }
 
@@ -130,6 +139,10 @@ func freeChainDelete(dirs []*Dir, dirOffset Offset) (isFirst bool, freeListHead 
 // MISS: the offset of last dir entry in the bucket
 func (dm *DirManager) Get(key []byte) (hit bool, dirOffset Offset, d Dir) {
 	keyInt12, segmentId, bucketId := calcDirHashPosition(key, dm.SegmentsNum, dm.BucketsNumPerSegment)
+
+	dm.SegMutexes[segmentId].RLock()
+	defer dm.SegMutexes[segmentId].RUnlock()
+
 	return dirProbe(keyInt12, bucketId, dm.Dirs[segmentId])
 }
 
@@ -177,6 +190,9 @@ func (dm *DirManager) Set(key []byte, off Offset, size int) (dirOffset Offset, e
 	dir.setApproxSize(uint64(size))
 	dir.setHead(true)
 	dir.setTag(keyInt12)
+
+	dm.SegMutexes[segmentId].Lock()
+	defer dm.SegMutexes[segmentId].Unlock()
 
 	offset, err := dm.dirInsert(keyInt12, segmentId, bucketId, dir)
 	if err != nil {
