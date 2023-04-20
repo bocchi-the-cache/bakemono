@@ -28,5 +28,5 @@ clean:
 
 pressure-app:
 	@$(GO_ENV) $(GO) build $(GO_FLAGS) -o pressure-test ./demo-app/pressure/
-
+	@$(GO_ENV) $(GO) build $(GO_FLAGS) -o pressure-test-concurrent ./demo-app/pressure-concurrent-rw/
 all: clean build
