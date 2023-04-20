@@ -1,5 +1,7 @@
 package bakemono
 
+import "log"
+
 const MaxKeyLength = 4096
 
 func (v *Vol) Set(key, value []byte) (err error) {
@@ -9,18 +11,26 @@ func (v *Vol) Set(key, value []byte) (err error) {
 		return err
 	}
 
-	// could set offset into dir, but we use dirOffset->chunkOffset for now
-	dirOffset, err := v.Dm.Set(key, Offset(1), len(value))
-
-	//log.Printf("DEBUG: write data")
-	// write data
-	writeOffset := uint64(v.DataOffset + dirOffset*v.ChunkSize)
-
+	// make data chunk
 	ck := &Chunk{}
 	err = ck.Set(key, value)
 	if err != nil {
 		return err
 	}
+
+	// process data write position
+	binLenOnDisk := ck.GetBinaryLength()
+	if v.WritePos+binLenOnDisk > v.Length {
+		log.Printf("data write overflowed, start from dataOffset. set: writePos: %d, dataOffset: %d, len(value): %d", v.WritePos, v.DataOffset, len(value))
+		v.WritePos = v.DataOffset
+	}
+	writeOffset := v.WritePos
+	v.WritePos += binLenOnDisk
+
+	// set dir
+	_, err = v.Dm.Set(key, writeOffset, int(binLenOnDisk))
+
+	// write to disk
 	err = ck.WriteAt(v.Fp, int64(writeOffset))
 	if err != nil {
 		return err
@@ -45,14 +55,14 @@ func (v *Vol) Get(key []byte) (hit bool, value []byte, err error) {
 		return false, nil, err
 	}
 
-	hit, dirOffset, d := v.Dm.Get(key)
+	hit, _, d := v.Dm.Get(key)
 
 	if !hit {
 		return false, nil, nil
 	}
 
 	// read data
-	readOffset := uint64(v.DataOffset + dirOffset*v.ChunkSize)
+	readOffset := d.offset()
 	approxSize := d.approxSize()
 
 	ck := &Chunk{}

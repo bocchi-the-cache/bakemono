@@ -24,6 +24,7 @@ const BlockSize = 1 << 12
 // Vol constants
 const (
 	MagicBocchi = 0x000b0cc1
+	MagicChunk  = 0x00114514
 
 	DirDepth = 4
 

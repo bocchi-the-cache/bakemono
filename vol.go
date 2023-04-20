@@ -25,9 +25,10 @@ var (
 // structure: Meta_A(header, dirs, footer) + Meta_B(header, dirs, footer) + Data(Chunks)
 // dirs are organized segment->bucket->dir logically.
 type Vol struct {
-	Path string
-	Fp   OffsetReaderWriterCloser
-	Dm   *DirManager
+	Path     string
+	Fp       OffsetReaderWriterCloser
+	Dm       *DirManager
+	WritePos Offset
 
 	Header *VolHeaderFooter
 
@@ -99,6 +100,7 @@ func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 	// calculate vol offsets
 	v.prepareOffsets(cfg)
 	v.initEmptyMeta()
+	v.WritePos = v.DataOffset
 
 	// validate disk file
 	// TODO: meta flush/restore from disk

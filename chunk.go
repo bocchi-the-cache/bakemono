@@ -3,6 +3,7 @@ package bakemono
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
 )
@@ -24,9 +25,12 @@ func (c *Chunk) Set(key, data []byte) error {
 	}
 	c.DataRaw = data
 	copy(c.Header.Key[:], key)
+
+	c.Header.Magic = MagicChunk
 	c.Header.DataLength = uint32(len(data))
 	c.Header.HeaderSize = ChunkHeaderSizeFixed
 	c.Header.Checksum = crc32.ChecksumIEEE(data)
+	c.Header.HeaderChecksum = c.Header.GenerateHeaderChecksum()
 	return nil
 }
 
@@ -35,6 +39,11 @@ func (c *Chunk) Set(key, data []byte) error {
 func (c *Chunk) GetKeyData() ([]byte, []byte) {
 	keyTrim := bytes.TrimRight(c.Header.Key[:], "\x00")
 	return keyTrim, c.DataRaw
+}
+
+// GetBinaryLength returns the binary length of the chunk.
+func (c *Chunk) GetBinaryLength() Offset {
+	return Offset(ChunkHeaderSizeFixed + len(c.DataRaw))
 }
 
 // WriteAt writes the chunk to the writer at the offset.
@@ -59,6 +68,14 @@ func (c *Chunk) ReadAt(r io.ReaderAt, off, size int64) error {
 
 // Verify verifies the chunk. It returns nil if the chunk is valid.
 func (c *Chunk) Verify() error {
+	// magic check
+	if c.Header.Magic != MagicChunk {
+		return ErrChunkVerifyFailed
+	}
+	// header checksum check
+	if c.Header.HeaderChecksum != c.Header.GenerateHeaderChecksum() {
+		return ErrChunkVerifyFailed
+	}
 	// data length check
 	if len(c.DataRaw) != int(c.Header.DataLength) {
 		return ErrChunkVerifyFailed
@@ -97,11 +114,12 @@ func (c *Chunk) UnmarshalBinary(data []byte) error {
 
 // ChunkHeader is the meta of a chunk.
 type ChunkHeader struct {
-	Checksum   uint32
-	Key        [ChunkKeyMaxSize]byte
-	DataLength uint32
-	HeaderSize uint32
-	//HeaderChecksum uint32
+	Magic          uint32
+	Checksum       uint32
+	Key            [ChunkKeyMaxSize]byte
+	DataLength     uint32
+	HeaderSize     uint32
+	HeaderChecksum uint32
 }
 
 // MarshalBinary returns the binary representation of the chunk header.
@@ -117,4 +135,8 @@ func (c *ChunkHeader) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary unmarshal the binary representation of the chunk header.
 func (c *ChunkHeader) UnmarshalBinary(data []byte) error {
 	return binary.Read(bytes.NewBuffer(data), binary.BigEndian, c)
+}
+
+func (c *ChunkHeader) GenerateHeaderChecksum() uint32 {
+	return crc32.ChecksumIEEE([]byte(fmt.Sprintf("%v,%v,%v,%v", c.Magic, c.Checksum, c.Key, c.DataLength)))
 }

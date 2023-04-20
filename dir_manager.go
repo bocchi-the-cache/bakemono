@@ -198,12 +198,12 @@ func (dm *DirManager) dirInsert(key uint16, segmentId segId, bucketId Offset, di
 		return dirOffset, nil
 	}
 
-	ddp := dm.DiagDumpAllDirsToString()
-	err = dm.DiagPanicHangUpDirs()
-	if err != nil {
-		log.Printf("----------- diags: dumps all dirs no modify: \n%s", ddp)
-		panic(err)
-	}
+	//ddp := dm.DiagDumpAllDirsToString()
+	//err = dm.DiagPanicHangUpDirs()
+	//if err != nil {
+	//	log.Printf("----------- diags: dumps all dirs no modify: \n%s", ddp)
+	//	panic(err)
+	//}
 
 	// get a free dir
 	_, freeDirOffset := dm.getFreeDir(segmentId, bucketId)
@@ -220,12 +220,12 @@ func (dm *DirManager) dirInsert(key uint16, segmentId segId, bucketId Offset, di
 		dm.Dirs[segmentId][lastDirOfBucket].setNext(uint16(freeDirOffset))
 	}
 
-	err = dm.DiagPanicHangUpDirs()
-	if err != nil {
-		log.Printf("----------- diags: dumps all dirs before: \n%s", ddp)
-		log.Printf("----------- diags: dumps all dirs after: \n%s", dm.DiagDumpAllDirsToString())
-		panic(err)
-	}
+	//err = dm.DiagPanicHangUpDirs()
+	//if err != nil {
+	//	log.Printf("----------- diags: dumps all dirs before: \n%s", ddp)
+	//	log.Printf("----------- diags: dumps all dirs after: \n%s", dm.DiagDumpAllDirsToString())
+	//	panic(err)
+	//}
 	return freeDirOffset, nil
 }
 

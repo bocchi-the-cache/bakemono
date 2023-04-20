@@ -16,7 +16,7 @@ const LOOP = 50000
 func main() {
 	_ = os.Remove("/tmp/bakemono-test.vol")
 
-	cfg, err := bakemono.NewVolOptionsWithFileTruncate("/tmp/bakemono-test.vol", 1024*512*1000, 1024*1024)
+	cfg, err := bakemono.NewVolOptionsWithFileTruncate("/tmp/bakemono-test.vol", 1024*5120*1000, 1024*1024)
 	if err != nil {
 		panic(err)
 	}
