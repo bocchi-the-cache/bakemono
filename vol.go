@@ -56,10 +56,10 @@ type VolOptions struct {
 	FlushMetaInterval time.Duration
 }
 
-// NewVolOptionsWithFileTruncate creates a VolOptions with a file path.
+// NewDefaultVolOptions creates a VolOptions with a file path.
 // Note: It will create a file if not exists, and truncate it to the given sizeInternal.
-func NewVolOptionsWithFileTruncate(path string, fileSize, chunkSize uint64) (*VolOptions, error) {
-	log.Printf("creating vol options with file truncate, path: %s, fileSize: %d, chunkSize: %d", path, fileSize, chunkSize)
+func NewDefaultVolOptions(path string, fileSize, avgChunkSize uint64) (*VolOptions, error) {
+	log.Printf("creating vol options with file truncate, path: %s, fileSize: %d, avgChunkSize: %d", path, fileSize, avgChunkSize)
 	fp, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func NewVolOptionsWithFileTruncate(path string, fileSize, chunkSize uint64) (*Vo
 	return &VolOptions{
 		Fp:                fp,
 		FileSize:          Offset(fileSize),
-		ChunkSize:         Offset(chunkSize),
+		ChunkSize:         Offset(avgChunkSize),
 		FlushMetaInterval: 60 * time.Second,
 	}, nil
 }
@@ -148,6 +148,8 @@ func (v *Vol) SyncFlushLoop(interval time.Duration) {
 			err := v.flushMetaToFp()
 			if err != nil {
 				log.Printf("error: flush meta to fp failed, err: %v", err)
+			} else {
+				log.Printf("info: flush meta to fp done")
 			}
 		}
 	}

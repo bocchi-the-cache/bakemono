@@ -73,7 +73,7 @@ func (v *Vol) Get(key []byte) (hit bool, value []byte, err error) {
 	}
 	ckKey, ckData := ck.GetKeyData()
 	if string(ckKey) != string(key) {
-		log.Printf("warning: key mismatch. key: %s, ckKey: %s", key, ckKey)
+		//log.Printf("warning: key mismatch. key: %s, ckKey: %s", key, ckKey)
 		return false, nil, nil
 	}
 

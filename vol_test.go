@@ -6,7 +6,7 @@ import (
 )
 
 func CreateTestingVol(path string, fileSize, chunkSize uint64) (*Vol, bool, error) {
-	cfg, err := NewVolOptionsWithFileTruncate(path, fileSize, chunkSize)
+	cfg, err := NewDefaultVolOptions(path, fileSize, chunkSize)
 	if err != nil {
 		panic(err)
 	}

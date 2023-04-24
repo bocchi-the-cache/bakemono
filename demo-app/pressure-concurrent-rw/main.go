@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	rand2 "math/rand"
-	"os"
 	"sync"
 	"time"
 
@@ -14,9 +13,11 @@ import (
 const LOOP = 50000
 
 func main() {
-	_ = os.Remove("/tmp/bakemono-test.vol")
+	// read path from args
 
-	cfg, err := bakemono.NewVolOptionsWithFileTruncate("/tmp/bakemono-test.vol", 1024*512*1000000, 1024*1024)
+	//_ = os.Remove("/tmp/bakemono-test.vol")
+
+	cfg, err := bakemono.NewDefaultVolOptions("/tmp/bakemono-test.vol", 1024*512*100000, 1024*1024)
 	if err != nil {
 		panic(err)
 	}
