@@ -8,6 +8,9 @@
 
 `bakemono`is a cache storage engine implemented in Go. 
 
+<p align="center">
+    <a href="https://miaoyan.app/" target="_blank"><img src=./logo.png width=450 /></a></p>
+
 Design goals:
 - **Lightweight**: easy to embed in your project
 - **High-performance**: high throughput and low latency
@@ -131,6 +134,9 @@ TBD
 **Bakemono** is a Japanese word meaning "monster". In Chinese, it is called "贵物". 
 
 We wish it could be a **lightweight** but **high-performance** cache storage engine like a "bakemono"!
+
+### Logo
+The logo is designed by [Yige](https://yige.baidu.com/).
 
 ### Who are `bocchi-the-cache`?
 We are a group of engineers who are interested in storage, networking and Go programming language.
