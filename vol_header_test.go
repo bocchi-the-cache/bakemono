@@ -11,7 +11,7 @@ func TestVolHeaderFooterMarshal(t *testing.T) {
 		CreateUnixTime: 0x1ab27df24eaf0924,
 		WritePos:       0xdf241ab27e924af0,
 		SyncSerial:     0xab2df2eaf0924417,
-		WriteSerial:    0x78934ab01256cdef,
+		//WriteSerial:    0x78934ab01256cdef,
 	}
 	b, err := v.MarshalBinary()
 	if err != nil {
@@ -26,7 +26,7 @@ func TestVolHeaderFooterUnmarshal(t *testing.T) {
 		CreateUnixTime: 0x1ab27df24eaf0924,
 		WritePos:       0xdf241ab27e924af0,
 		SyncSerial:     0xab2df2eaf0924417,
-		WriteSerial:    0x78934ab01256cdef,
+		//WriteSerial:    0x78934ab01256cdef,
 	}
 	b, err := v.MarshalBinary()
 	if err != nil {

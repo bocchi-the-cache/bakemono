@@ -1,9 +1,11 @@
 package bakemono
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -24,7 +26,8 @@ type DirManager struct {
 	SegMutexes map[segId]*sync.RWMutex
 }
 
-func (dm *DirManager) Init(dirNum Offset) {
+// Init initializes the dir manager. Dirs will Initialized as empty by default.
+func (dm *DirManager) Init(dirNum Offset) Offset {
 	dm.Dirs = make(map[segId][]*Dir)
 	dm.DirFreeStart = make(map[segId]uint16)
 	dm.SegMutexes = make(map[segId]*sync.RWMutex)
@@ -38,7 +41,10 @@ func (dm *DirManager) Init(dirNum Offset) {
 	for i := 0; i < int(dm.SegmentsNum); i++ {
 		dm.SegMutexes[segId(i)] = &sync.RWMutex{}
 	}
-	log.Printf("initing dir manager: ChunksNum: %d, BucketsNum: %d, SegmentsNum: %d, BucketsNumPerSegment: %d", dm.ChunksNum, dm.BucketsNum, dm.SegmentsNum, dm.BucketsNumPerSegment)
+
+	dm.InitEmptyDirs()
+	log.Printf("initing dir manager: ChunksMaxNum: %d, BucketsNum: %d, SegmentsNum: %d, BucketsNumPerSegment: %d", dm.ChunksNum, dm.BucketsNum, dm.SegmentsNum, dm.BucketsNumPerSegment)
+	return dm.ChunksNum
 }
 
 // TODO: serialize and deserialize from bytes
@@ -412,4 +418,51 @@ func (dm *DirManager) purgeRandom100(segmentId segId, whileListBucketId Offset) 
 	dm.freeChainRebuild(segmentId)
 
 	return Offset(counter)
+}
+
+// MarshalBinary converts the Dirs to binary format
+func (dm *DirManager) MarshalBinary() (data []byte, err error) {
+	buf := new(bytes.Buffer)
+	for i := segId(0); Offset(i) < dm.SegmentsNum; i++ {
+		err := func() error {
+			dm.SegMutexes[i].Lock()
+			defer dm.SegMutexes[i].Unlock()
+			for j := 0; j < int(dm.BucketsNumPerSegment*DirDepth); j++ {
+				err = binary.Write(buf, binary.BigEndian, &dm.Dirs[i][j].raw)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}()
+		if err != nil {
+			return nil, err
+		}
+	}
+	data = buf.Bytes()
+	return
+}
+
+func (dm *DirManager) UnmarshalBinary(data []byte) (err error) {
+	if len(data) != int(dm.SegmentsNum*dm.BucketsNumPerSegment*DirDepth*Offset(binary.Size(&Dir{}))) {
+		return fmt.Errorf("invalid data size")
+	}
+	buf := bytes.NewBuffer(data)
+	for i := segId(0); Offset(i) < dm.SegmentsNum; i++ {
+		err := func() error {
+			dm.SegMutexes[i].Lock()
+			defer dm.SegMutexes[i].Unlock()
+			for j := 0; j < int(dm.BucketsNumPerSegment*DirDepth); j++ {
+				err = binary.Read(buf, binary.BigEndian, &dm.Dirs[i][j].raw)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
+	}
+	return
 }

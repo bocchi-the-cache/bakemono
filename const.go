@@ -1,6 +1,11 @@
 package bakemono
 
 const (
+	MajorVersion = 0
+	MinorVersion = 1
+)
+
+const (
 	SectorSize = 512
 )
 

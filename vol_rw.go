@@ -42,7 +42,7 @@ func (v *Vol) checkSetRequest(key, value []byte) (err error) {
 	if len(key) > MaxKeyLength {
 		return ErrChunkKeyTooLarge
 	}
-	if Offset(len(value)) > v.ChunkSize {
+	if Offset(len(value)) > v.ChunkAvgSize {
 		return ErrChunkDataTooLarge
 	}
 	return nil

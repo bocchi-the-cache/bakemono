@@ -3,6 +3,7 @@ package bakemono
 import (
 	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"log"
 	"os"
 	"time"
@@ -11,10 +12,7 @@ import (
 type Offset uint64
 type segId uint64
 
-//const (
-//	CacheBlockShift = 9
-//	CacheBlockSize  = 1 << CacheBlockShift
-//)
+// TODO(meta): flush/rebuild to A/B alternately
 
 var (
 	HeaderSize = binary.Size(&VolHeaderFooter{})
@@ -32,16 +30,20 @@ type Vol struct {
 
 	Header *VolHeaderFooter
 
-	SectorSize uint32
-	Length     Offset
-	ChunkSize  Offset
-	ChunksNum  Offset
+	SectorSize   uint32
+	Length       Offset
+	ChunkAvgSize Offset // average chunk size, adjusted by user.
+	ChunksMaxNum Offset // max chunks num in this vol. calculated from ChunkAvgSize and Length
 
 	HeaderAOffset Offset
 	FooterAOffset Offset
 	HeaderBOffset Offset
 	FooterBOffset Offset
 	DataOffset    Offset
+	DirAOffset    Offset
+
+	closeCh chan struct{}
+	flushCh chan struct{}
 }
 
 // VolOptions to init a Vol.
@@ -50,6 +52,8 @@ type VolOptions struct {
 	Fp        OffsetReaderWriterCloser
 	FileSize  Offset
 	ChunkSize Offset
+
+	FlushMetaInterval time.Duration
 }
 
 // NewVolOptionsWithFileTruncate creates a VolOptions with a file path.
@@ -66,9 +70,10 @@ func NewVolOptionsWithFileTruncate(path string, fileSize, chunkSize uint64) (*Vo
 		return nil, err
 	}
 	return &VolOptions{
-		Fp:        fp,
-		FileSize:  Offset(fileSize),
-		ChunkSize: Offset(chunkSize),
+		Fp:                fp,
+		FileSize:          Offset(fileSize),
+		ChunkSize:         Offset(chunkSize),
+		FlushMetaInterval: 60 * time.Second,
 	}, nil
 }
 
@@ -81,7 +86,7 @@ func (cfg *VolOptions) Check() error {
 		return errors.New("invalid config: FileSize is 0")
 	}
 	if cfg.ChunkSize == 0 {
-		return errors.New("invalid config: ChunkSize is 0")
+		return errors.New("invalid config: ChunkAvgSize is 0")
 	}
 	return nil
 }
@@ -93,93 +98,86 @@ func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 		return false, err
 	}
 
+	// channel init
+	v.closeCh = make(chan struct{})
+	v.flushCh = make(chan struct{})
+
 	// storage interface
 	v.Fp = cfg.Fp
-	v.ChunkSize = cfg.ChunkSize
+
+	// dir manager size init. note: dir data setup in next step
+	v.Dm = &DirManager{}
+	expectedDirNum := (cfg.FileSize - 4*Offset(HeaderSize)) / (cfg.ChunkSize + 2*Offset(DirSize))
+	v.ChunksMaxNum = v.Dm.Init(expectedDirNum)
 
 	// calculate vol offsets
 	v.prepareOffsets(cfg)
-	v.initEmptyMeta()
+
+	err = v.buildMetaFromFp()
+	if err != nil {
+		log.Printf("warn: build meta from fp failed, file may corrupted, err: %v", err)
+		corrupted = true
+		v.initEmptyMeta()
+	}
+
+	// sync meta to vol, avoid mutex for header
 	v.WritePos = v.DataOffset
 
-	// validate disk file
-	// TODO: meta flush/restore from disk
-
-	//err = v.validateFp()
-	//if err != nil {
-	//	log.Printf("validate file failed, cache file may be corrupted or not initialized, err: %v", err)
-	//
-	//	v.initEmptyMeta()
-	//	corrupted = true
-	//
-	//	err = v.flushMetaToFp()
-	//	if err != nil {
-	//		log.Printf("init file failed, err: %v", err)
-	//		return corrupted, err
-	//	}
-	//}
-	//
-	//// rebuild from meta
-	//err = v.buildMetaFromFp()
+	// start sync flush thread
+	go v.SyncFlushLoop(cfg.FlushMetaInterval)
 
 	log.Printf("init vol done, corrupted: %v, err: %v", corrupted, err)
 	return corrupted, nil
 }
 
+// Close closes the Vol.
+func (v *Vol) Close() error {
+	close(v.closeCh)
+	<-v.flushCh
+	return v.Fp.Close()
+}
+
+// SyncFlushLoop flushes metadata to disk periodically.
+func (v *Vol) SyncFlushLoop(interval time.Duration) {
+	for {
+		select {
+		case <-v.closeCh:
+			close(v.flushCh)
+			return
+		case <-time.After(interval):
+			err := v.flushMetaToFp()
+			if err != nil {
+				log.Printf("error: flush meta to fp failed, err: %v", err)
+			}
+		}
+	}
+}
+
 // prepareOffsets calculates offsets and block numbers before initing a Vol.
 func (v *Vol) prepareOffsets(cfg *VolOptions) {
+	v.ChunkAvgSize = cfg.ChunkSize
 	v.SectorSize = 512
+	v.Length = cfg.FileSize
 
 	// calculate sizeInternal to allocate
 	// Meta_A(header, dirs, footer) + Meta_B(header, dirs, footer) + Data(Chunks)
 	HeaderFooterSize := Offset(HeaderSize)
 	DirSize := Offset(binary.Size(&Dir{}))
-	TotalChunks := (cfg.FileSize - 4*HeaderFooterSize) / (cfg.ChunkSize + 2*DirSize)
-	MetaSize := 2 * (HeaderFooterSize + TotalChunks*DirSize)
-	DataSize := TotalChunks * cfg.ChunkSize
-	ActualFileSize := MetaSize + DataSize
-	log.Printf("initing vol: TotalChunks: %d, MetaSize: %d, DataSize: %d, ActualFileSize: %d", TotalChunks, MetaSize, DataSize, ActualFileSize)
+	// TotalChunk init by DirManager
+	//TotalChunks := (cfg.FileSize - 4*HeaderFooterSize) / (cfg.ChunkAvgSize + 2*DirSize)
+	MetaSize := 2 * (2*HeaderFooterSize + v.ChunksMaxNum*DirSize)
+	DataSize := cfg.FileSize - MetaSize
+	log.Printf("initing vol: ChunksMaxNum: %d, MetaSize: %d, DataSize: %d, VolLength: %d", v.ChunksMaxNum, MetaSize, DataSize, v.Length)
 
 	// calculate offsets
 	v.HeaderAOffset = 0
-	v.FooterAOffset = HeaderFooterSize + TotalChunks*DirSize
+	v.FooterAOffset = HeaderFooterSize + v.ChunksMaxNum*DirSize
 	v.HeaderBOffset = v.FooterAOffset + HeaderFooterSize
-	v.FooterBOffset = v.HeaderBOffset + HeaderFooterSize + TotalChunks*DirSize
-	v.DataOffset = v.FooterBOffset + HeaderFooterSize
+	v.FooterBOffset = v.HeaderBOffset + HeaderFooterSize + v.ChunksMaxNum*DirSize
+	v.DataOffset = MetaSize
+	v.DirAOffset = v.HeaderAOffset + HeaderFooterSize
 
-	// calculate block number
-	v.Length = ActualFileSize
-	v.ChunksNum = TotalChunks
-	log.Printf("initing vol: ActualLength: %d, ChunksNum: %d", v.Length, v.ChunksNum)
-}
-
-// validateFp validates the io with metadata.
-func (v *Vol) validateFp() error {
-	// read header
-	offsets := []Offset{v.HeaderAOffset, v.FooterAOffset, v.HeaderBOffset, v.FooterBOffset}
-	var headFooters []*VolHeaderFooter
-	size := HeaderSize
-	for _, off := range offsets {
-		hf := &VolHeaderFooter{}
-		data := make([]byte, size)
-		_, err := v.Fp.ReadAt(data, int64(off))
-		if err != nil {
-			return err
-		}
-		err = hf.UnmarshalBinary(data)
-		if err != nil {
-			return err
-		}
-		headFooters = append(headFooters, hf)
-	}
-
-	// check magic
-	for _, hf := range headFooters {
-		if hf.Magic != MagicBocchi {
-			return errors.New("invalid magic")
-		}
-	}
-	return nil
+	log.Printf("initing vol: ActualLength: %d, ChunksMaxNum: %d", v.Length, v.ChunksMaxNum)
 }
 
 // buildMetaFromFp builds new empty metadata.
@@ -189,16 +187,11 @@ func (v *Vol) initEmptyMeta() {
 		CreateUnixTime: time.Now().Unix(),
 		WritePos:       v.DataOffset,
 		SyncSerial:     0,
-		WriteSerial:    0,
+		//WriteSerial:    0,
 	}
 
-	v.Dm = &DirManager{}
-	v.Dm.Init(v.ChunksNum)
 	v.Dm.InitEmptyDirs()
 }
-
-// TODO(meta): meta checksum, meta version
-// TODO(flush): flush to A/B alternately
 
 // buildMetaFromFp builds metadata from io.
 func (v *Vol) buildMetaFromFp() error {
@@ -214,42 +207,45 @@ func (v *Vol) buildMetaFromFp() error {
 	}
 	v.Header = h
 
-	// read dirs
-	//v.Dirs = make(map[segId][]*Dir)
-	//v.DirFreeStart = make(map[segId]uint16)
-	//for seg := 0; seg < int(v.SegmentsNum); seg++ {
-	//	dirs := make([]*Dir, v.BucketsNumPerSegment*DirDepth)
-	//	for bucket := 0; bucket < int(v.BucketsNumPerSegment); bucket++ {
-	//		for depth := 0; depth < DirDepth; depth++ {
-	//			dirIndex := bucket*DirDepth + depth
-	//			dirs[dirIndex] = &Dir{}
-	//			data := make([]byte, binary.Size(dirs[dirIndex]))
-	//
-	//			pos := v.HeaderAOffset + offset(HeaderSize) + offset(dirIndex*DirSize)
-	//			_, err := v.Fp.ReadAt(data, int64(pos))
-	//			if err != nil {
-	//				return err
-	//			}
-	//			err = dirs[dirIndex].UnmarshalBinary(data)
-	//			if err != nil {
-	//				return err
-	//			}
-	//		}
-	//	}
-	//	v.Dirs[segId(seg)] = dirs
-	//	// TODO: dump free start
-	//	//v.DirFreeStart[segId(seg)] = uint16(seg)*uint16(v.BucketsNumPerSegment*DirDepth) + 1
-	//}
+	DirSize := Offset(binary.Size(&Dir{})) * v.ChunksMaxNum
+	dirsRaw := make([]byte, DirSize)
+	_, err = v.Fp.ReadAt(dirsRaw, int64(v.DirAOffset))
+	if err != nil {
+		return err
+	}
+
+	DirsCheckSum := crc32.ChecksumIEEE(dirsRaw)
+	log.Printf("DirsCheckSum: %d, v.Header.DirsChecksum: %d", DirsCheckSum, v.Header.DirsChecksum)
+	if DirsCheckSum != v.Header.DirsChecksum {
+		return errors.New("invalid dir checksum")
+	}
+
+	err = v.Dm.UnmarshalBinary(dirsRaw)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // flushMetaToFp flushes metadata to io.
 func (v *Vol) flushMetaToFp() error {
-	err := v.flushHeaderFooterToFp()
+	v.Header.Magic = MagicBocchi
+	v.Header.MajorVersion = MajorVersion
+	v.Header.MinorVersion = MinorVersion
+	v.Header.WritePos = v.WritePos
+	v.Header.SyncSerial++
+	dirsRaw, err := v.Dm.MarshalBinary()
 	if err != nil {
 		return err
 	}
-	err = v.flushDirsToFp()
+	v.Header.DirsChecksum = crc32.ChecksumIEEE(dirsRaw)
+
+	err = v.flushHeaderFooterToFp()
+	if err != nil {
+		return err
+	}
+	err = v.flushDirRawToFp(dirsRaw)
 	if err != nil {
 		return err
 	}
@@ -271,20 +267,15 @@ func (v *Vol) flushHeaderFooterToFp() error {
 	return nil
 }
 
-func (v *Vol) flushDirsToFp() error {
-	//for seg := 0; seg < int(v.SegmentsNum); seg++ {
-	//	dirs := v.Dirs[segId(seg)]
-	//	for i := 0; i < len(dirs); i++ {
-	//		data, err := dirs[i].MarshalBinary()
-	//		if err != nil {
-	//			return err
-	//		}
-	//		off := v.HeaderAOffset + offset(HeaderSize) + offset(i*DirSize)
-	//		_, err = v.Fp.WriteAt(data, int64(off))
-	//		if err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
+func (v *Vol) flushDirRawToFp(data []byte) error {
+	// check if data size is correct
+	DirSize := Offset(binary.Size(&Dir{})) * v.ChunksMaxNum
+	if DirSize < Offset(len(data)) {
+		return errors.New("invalid dir data size")
+	}
+	_, err := v.Fp.WriteAt(data, int64(v.DirAOffset))
+	if err != nil {
+		return err
+	}
 	return nil
 }

@@ -3,6 +3,7 @@ package bakemono
 import (
 	"crypto/rand"
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ func TestNewDirManager(t *testing.T) {
 	dm := &DirManager{}
 	dm.Init(123457)
 	if dm.ChunksNum != 123456 {
-		t.Error("ChunksNum should be 123456")
+		t.Error("ChunksMaxNum should be 123456")
 	}
 	if dm.BucketsNum != 30864 {
 		t.Error("BucketsNum should be 30864")
@@ -65,6 +66,31 @@ func TestDirManager_InitEmptyDirs(t *testing.T) {
 	t.Logf("dir free chain length: %d", counter)
 	if Offset(counter) != (dm.SegmentsNum * dm.BucketsNumPerSegment * (DirDepth - 1)) {
 		t.Error("dir free chain not match")
+	}
+	return
+}
+
+func TestDirManager_Marshal_Unmarshal(t *testing.T) {
+	dm := &DirManager{}
+	dm.Init(123457)
+	dm.InitEmptyDirs()
+
+	// marshal
+	data, err := dm.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// unmarshal
+	dm2 := &DirManager{}
+	dm2.Init(123457)
+	err = dm2.UnmarshalBinary(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check if dm2 is equal to dm
+	if !reflect.DeepEqual(dm, dm2) {
+		t.Error("dm2 not equal to dm")
 	}
 	return
 }
