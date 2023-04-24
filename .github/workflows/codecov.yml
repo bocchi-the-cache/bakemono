@@ -1,0 +1,2 @@
+- name: codecov
+  uses: codecov/codecov-action@v3
