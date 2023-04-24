@@ -9,7 +9,7 @@
 `bakemono`is a cache storage engine implemented in Go. 
 
 <p align="center">
-    <a href="https://miaoyan.app/" target="_blank"><img src=./logo.png width=450 /></a></p>
+    <a href="https://github.com/bocchi-the-cache/bakemono" target="_blank"><img src=./logo.png width=450 /></a></p>
 
 Design goals:
 - **Lightweight**: easy to embed in your project
