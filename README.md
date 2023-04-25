@@ -9,16 +9,16 @@
 `bakemono`is a cache storage engine implemented in Go. 
 
 <p align="center">
-    <a href="https://github.com/bocchi-the-cache/bakemono" target="_blank"><img src=./logo.png width=450 /></a></p>
+    <a href="https://github.com/bocchi-the-cache/bakemono" target="_blank"><img src=docs/logo.png width=450 /></a></p>
 
-Design goals:
-- **Lightweight**: easy to embed in your project
-- **High-performance**: high throughput and low latency
-- **Code-readable**: simple but powerful storage design, easy to read and understand
+## 🏁 Design goals
+- **🪶 Lightweight**: easy to embed in your project
+- **🚀 High-performance**: high throughput and low latency
+- **😀 Code-readable**: simple but powerful storage design, easy to read and understand
 
 It is highly inspired by [Apache Traffic Server], implemented for our cache-proxy project [hitori].
 
-## Cache Storage Engine
+## 💾 Cache Storage Engine
 What is a **cache storage engine**? 
 What is the difference from an **embeddable k-v database**?
 
@@ -37,7 +37,7 @@ Cache storage is common in CDN (Content Delivery Network). It is used to cache f
 
 The size of cache data is usually `~100TiB` per bare-metal server.
 
-## Usage
+## 🗝️ Usage
 
 ### Install
 You can use `bakemono` as a pkg in your project. 
@@ -109,11 +109,99 @@ In this version, they are sharing several RWLocks. We will give more tuning opti
 **We highly recommend you to read tech design doc before using it in high-load scenarios.**
 
 
-## Tech Design
-TBD
+## 🤖 Tech Design
+... until now. 
 
 ### Data Structure
-TBD
+
+There are 3 data structures in `bakemono`:
+
+- **`Vol`**
+  - **volume**, represents a single file on disk.
+  - A `Vol` is what we finally persist on disk.
+  - We will support bare block device in the future.
+- **`Chunk`**
+  - basic unit of your k-v cache data.
+  - restored on disk.
+- **`Dir`**
+  - **directory**, a meta index of `Chunk`.
+  - All `Dir`s are loaded in memory. It is compact.
+
+#### Chunk
+`Chunk` is the basic unit of cache data.
+
+| name           | data type      | desc                  |
+|----------------|----------------|-----------------------|
+| Magic          | uint32         | fixed: 0x00114514     |
+| Checksum       | uint32         | checksum of DataRaw   |
+| Key            | [3000]byte     | fixed size key bytes  |
+| DataLength     | uint32         |                       |
+| HeaderSize     | uint32         | fixed: 4096.          |
+| HeaderChecksum | uint32         | checksum of the above |
+| DataRaw        | variable bytes | raw data              |
+
+We force set chunk header size to 4KB this version, a sector size.
+
+#### Dir
+`Dir` is the meta index of `Chunk`. 
+
+Every `Chunk` has a `Dir` to represent it in memory.
+
+`Dir` is always loaded in memory.
+```go
+type Dir struct {
+	/*
+	   unsigned int offset : 24;  // (0,1:0-7)
+	   unsigned int bigInternal : 2;      // (1:8-9)
+	   unsigned int sizeInternal : 6;     // (1:10-15)
+	   unsigned int tag : 12;     // (2:0-11)
+	   unsigned int phase : 1;    // (2:12)
+	   unsigned int head : 1;     // (2:13)
+	   unsigned int pinned : 1;   // (2:14)
+	   unsigned int token : 1;    // (2:15)
+	   unsigned int next : 16;    // (3)
+	   unsigned int offset_high : 16;
+
+	   if unused, raw[2] is `prev`, represents previous dir in freelist.
+
+	   approx_size = sectorSize(512) * (2**3big) * sizeInternal
+	*/
+	raw [5]uint16
+}
+```
+
+`Dir` is organized in raw 10 bytes. Use bit operations to get/set fields. This is a design of [Apache Traffic Server].
+We must save every bit to reduce memory usage.
+
+Note: if Dir is unused, `raw[2]` is `prev`, represents previous dir in freelist. To save 1 byte.
+
+
+Memory usage:
+
+If we have `100TB` data with `1MB` chunk size, we only need `100TB/1MB*10B = 1GB` memory to index `Dir`s.
+
+
+#### Segment, Bucket, Freelist
+`Segment` and `Bucket` are logical groups of `Dir`. 
+
+`Segment` is a collection of `Bucket`s. `Bucket` is a collection of `dir`s.
+
+They are logically organized as below:
+![./docs/dirs-init.png](./docs/dirs-init.png)
+
+
+A `bucket` is group of fixed size `4` dirs.
+
+A `segment` has max size `2^16=65536` dirs.
+
+`Dirs` is a linked list. 
+When initializing, we will all **non-bucket-head** dirs to freelist, named `freeDirs`.
+
+And there is a `map[segmentId]dirId` to index the first **free dir** of each segment.
+
+Note, dirs is an array in memory.
+
+Why `segments`? We could lock, flush meta per segment.
 
 ### Read/Write
 TBD
