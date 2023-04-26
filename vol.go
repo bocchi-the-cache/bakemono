@@ -49,9 +49,9 @@ type Vol struct {
 // VolOptions to init a Vol.
 // Note: do file open/truncate outside.
 type VolOptions struct {
-	Fp        OffsetReaderWriterCloser
-	FileSize  Offset
-	ChunkSize Offset
+	Fp           OffsetReaderWriterCloser
+	FileSize     Offset
+	ChunkAvgSize Offset
 
 	FlushMetaInterval time.Duration
 }
@@ -72,7 +72,7 @@ func NewDefaultVolOptions(path string, fileSize, avgChunkSize uint64) (*VolOptio
 	return &VolOptions{
 		Fp:                fp,
 		FileSize:          Offset(fileSize),
-		ChunkSize:         Offset(avgChunkSize),
+		ChunkAvgSize:      Offset(avgChunkSize),
 		FlushMetaInterval: 60 * time.Second,
 	}, nil
 }
@@ -85,7 +85,7 @@ func (cfg *VolOptions) Check() error {
 	if cfg.FileSize == 0 {
 		return errors.New("invalid config: FileSize is 0")
 	}
-	if cfg.ChunkSize == 0 {
+	if cfg.ChunkAvgSize == 0 {
 		return errors.New("invalid config: ChunkAvgSize is 0")
 	}
 	return nil
@@ -107,7 +107,7 @@ func (v *Vol) Init(cfg *VolOptions) (corrupted bool, err error) {
 
 	// dir manager size init. note: dir data setup in next step
 	v.Dm = &DirManager{}
-	expectedDirNum := (cfg.FileSize - 4*Offset(HeaderSize)) / (cfg.ChunkSize + 2*Offset(DirSize))
+	expectedDirNum := (cfg.FileSize - 4*Offset(HeaderSize)) / (cfg.ChunkAvgSize + 2*Offset(DirSize))
 	v.ChunksMaxNum = v.Dm.Init(expectedDirNum)
 
 	// calculate vol offsets
@@ -157,7 +157,7 @@ func (v *Vol) SyncFlushLoop(interval time.Duration) {
 
 // prepareOffsets calculates offsets and block numbers before initing a Vol.
 func (v *Vol) prepareOffsets(cfg *VolOptions) {
-	v.ChunkAvgSize = cfg.ChunkSize
+	v.ChunkAvgSize = cfg.ChunkAvgSize
 	v.SectorSize = 512
 	v.Length = cfg.FileSize
 
