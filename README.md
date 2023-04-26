@@ -127,7 +127,7 @@ There are 3 data structures in `bakemono`:
   - **directory**, a meta index of `Chunk`.
   - All `Dir`s are loaded in memory. It is compact.
 
-#### Chunk
+#### 🧱 Chunk
 `Chunk` is the basic unit of cache data.
 
 | name           | data type      | desc                  |
@@ -142,7 +142,7 @@ There are 3 data structures in `bakemono`:
 
 We force set chunk header size to 4KB this version, a sector size.
 
-#### Dir
+#### 🔖 Dir
 `Dir` is the meta index of `Chunk`. 
 
 Every `Chunk` has a `Dir` to represent it in memory.
@@ -173,15 +173,16 @@ type Dir struct {
 `Dir` is organized in raw 10 bytes. Use bit operations to get/set fields. This is a design of [Apache Traffic Server].
 We must save every bit to reduce memory usage.
 
-Note: if Dir is unused, `raw[2]` is `prev`, represents previous dir in freelist. To save 1 byte.
-
+Note: 
+- If Dir is unused, `raw[2]` is `prev`, represents previous dir in freelist. To save 1 byte.
+- Size is not exact. It is `sectorSize(512) * (2**3big) * sizeInternal`. Max to represent ~16GB using only 8 bits.
 
 Memory usage:
 
 If we have `100TB` data with `1MB` chunk size, we only need `100TB/1MB*10B = 1GB` memory to index `Dir`s.
 
 
-#### Segment, Bucket, Freelist
+#### 🪣 Segment, Bucket, Freelist
 `Segment` and `Bucket` are logical groups of `Dir`. 
 
 `Segment` is a collection of `Bucket`s. `Bucket` is a collection of `dir`s.
@@ -190,27 +191,109 @@ They are logically organized as below:
 ![./docs/dirs-init.png](./docs/dirs-init.png)
 
 
-A `bucket` is group of fixed size `4` dirs.
+- `bucket` is group of fixed size `4` dirs.
 
-A `segment` has max size `2^16=65536` dirs.
+- `segment` has max size `2^16=65536` dirs.
 
-`Dirs` is a linked list. 
-When initializing, we will all **non-bucket-head** dirs to freelist, named `freeDirs`.
+- `Dirs` is a linked list. 
 
-And there is a `map[segmentId]dirId` to index the first **free dir** of each segment.
+- All **non-bucket-head** dirs to freelist when initializing, named `freeDirs`.
+
+- `map[segmentId]dirId` to index the first **free dir** of each segment.
 
 Note, dirs is an array in memory.
 
 Why `segments`? We could lock, flush meta per segment.
 
-### Read/Write
-TBD
+#### 🗂️ Vol
+`Vol` is the volume on disk. It is the final data structure we persist on disk.
+
+![vol](docs/vol-struct.png)
+
+**Vol offset calculation**:
+
+init options are
+```go
+type VolOptions struct {
+	Fp        OffsetReaderWriterCloser
+	FileSize  Offset
+	ChunkAvgSize Offset
+
+	FlushMetaInterval time.Duration
+}
+```
+Max dirs size is nearly `FileSize/ChunkAvgSize` (There are alignment for bucket and segments). 
+
+Meaning, we have max `FileSize/ChunkAvgSize` chunks in this volume.
+
+**Vol Multi meta**
+
+Meta A/B are designed to be flush alternately. To avoid data loss when power failure happens.
+
+In this version, only use meta A. Will implement multi meta in the future.
+
+### Write
+
+We use `md5` to hash key:
+- key -> segmentId
+- key -> bucketId
+
+Once `segmentId` and `bucketId` are known:
+- try to use **bucket-head** dir.
+- if bucket-head is used, try to use **non-bucket-head** dir in this bucket.
+- if all dirs in this bucket are used, try to grab a free dir from `freeDirs`.
+
+When no free dir in `freeDirs`:
+- rebuild `freeDirs` in this segment.
+- if still no free dir, purge 10% buckets randomly in this segment.
+
+Once get free dir, unlink it from `freeDirs` and link it as tail of bucket. Write `chunk offset`, `key` and `other metadata` to dir.
+
+One example:
+![dirs-used](docs/dirs-used.png)
+
+
+Then, write data to disk.
+- rw lock the `Segment`
+- write data to data range of `Vol`
+
+Note: no hard limit for data size. But should **avoid too large data**, hold write lock too long.
+
+Chunk data is cyclic, we will overwrite old data when disk is full. The advantage is
+- sequential write is faster
+- no need to delete old data
+- no need to compact data in background
+- no write amplification
+
+![data-write](docs/data-write.png)
+
+### Read
+
+We use `md5` to hash key same as write
+- key -> segmentId
+- key -> bucketId
+
+Once `segmentId` and `bucketId` are known:
+- find `key` dir linked list.
+- if not found, return `MISS`
+- if found, read `Chunk` data from disk.
+- Check again the `full key` in `Chunk`.
+
+Due to the only `12 bit tag` in dir, we have to check `key` again in `Chunk`.
+Collision is possible, but will be much less when file size is large(>100GB).
+
+There are a little read amplification due to approx size of `Dir`. But it is acceptable.
 
 ### Metadata Persistence
-TBD
+Flush/restore `meta A` with `FlushMetaInterval`.
+
+Will implement multi meta in the future.
 
 ## Performance
-TBD
+
+Still in progress. 
+
+On our initial testing with HDD, it is nearly same to do `fio` test on hard disk.
 
 
 ## Other Information
