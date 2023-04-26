@@ -293,8 +293,11 @@ Will implement multi meta in the future.
 
 Still in progress. 
 
-On our initial testing with HDD, it is nearly same to do `fio` test on hard disk.
+It is related to many factors, such as `cache object value size`, `read/write ratio`, `cache hit ratio`, `HDD/SSD`...
 
+On our initial testing (3TB HDD, 1MB cache value, more read less write), it is nearly same to do `fio` test with similar parameters.
+
+More report is coming soon.
 
 ## Other Information
 ### Roadmap
